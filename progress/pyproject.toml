@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slurmbar-progress"
+version = "0.2.1"
+description = "Structured progress reporting for Slurm workloads, readable by SlurmBar."
+readme = "README.md"
+requires-python = ">=3.7"
+license = { text = "MIT" }
+authors = [{ name = "SlurmBar contributors" }]
+keywords = ["slurm", "hpc", "progress", "training"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["slurmbar_progress"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

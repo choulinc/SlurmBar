@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T02:30:00Z",
+  "agent_version": "0.1.0",
+  "ok": true,
+  "hostname": "login01.example.org",
+  "python_version": "3.9.18",
+  "checks": [
+    { "id": "agent", "title": "SlurmBar agent", "status": "ok", "detail": "Agent 0.1.0, protocol v1.", "value": "0.1.0" },
+    { "id": "python", "title": "Remote Python", "status": "ok", "detail": "/usr/bin/python3", "value": "3.9.18" },
+    { "id": "hostname", "title": "Login node", "status": "ok", "detail": null, "value": "login01.example.org" },
+    { "id": "slurm_commands", "title": "Slurm commands", "status": "ok", "detail": null, "value": "squeue, sacct, sstat, scancel, scontrol, sinfo" },
+    { "id": "slurm_version", "title": "Slurm version", "status": "ok", "detail": null, "value": "slurm 23.11.7" },
+    { "id": "squeue", "title": "squeue", "status": "ok", "detail": null, "value": "3 job(s) in queue" },
+    { "id": "squeue_json", "title": "squeue --json", "status": "ok", "detail": "Structured queue output is available.", "value": null },
+    { "id": "sacct", "title": "Accounting (sacct)", "status": "ok", "detail": "Job history is available.", "value": null },
+    { "id": "sstat", "title": "Live usage (sstat)", "status": "ok", "detail": "Available. Live memory still requires an active job step and is reported as peak RSS.", "value": null },
+    { "id": "progress_dir", "title": "Progress directory", "status": "ok", "detail": "2 job directories present.", "value": "/home/exampleuser/.local/state/slurmbar/jobs" }
+  ],
+  "warnings": []
+}

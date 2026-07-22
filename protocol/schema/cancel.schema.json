@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/choulinc/SlurmBar/protocol/schema/cancel.schema.json",
+  "title": "SlurmBar cancel result",
+  "description": "Response of `slurmbar-agent cancel --job-id ID --json`. This command is destructive and is never invoked automatically by the app or by the test suite.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "job_id", "ok", "exit_code"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string" },
+    "job_id": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "exit_code": { "type": ["integer", "null"] },
+    "message": { "type": ["string", "null"] },
+    "stderr": { "type": ["string", "null"] }
+  }
+}

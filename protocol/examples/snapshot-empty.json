@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T02:30:00Z",
+  "agent_version": "0.1.0",
+  "cluster": {
+    "name": "examplecluster",
+    "hostname": "login01.example.org",
+    "slurm_version": "slurm 23.11.7"
+  },
+  "summary": {
+    "running": 0,
+    "pending": 0,
+    "completing": 0,
+    "failed_recently": 0,
+    "completed_recently": 0
+  },
+  "jobs": [],
+  "warnings": []
+}

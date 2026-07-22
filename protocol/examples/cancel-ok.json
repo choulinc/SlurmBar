@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T02:31:00Z",
+  "job_id": "201551",
+  "ok": true,
+  "exit_code": 0,
+  "message": "Cancellation requested for job 201551.",
+  "stderr": "scancel: Terminating job 201551"
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T02:30:00Z",
+  "job_id": "201551",
+  "stream": "stdout",
+  "path": "/home/exampleuser/slurmbar-demo/logs/slurm-201551.out",
+  "lines": [
+    "Epoch 373/1000 | batch 94/94 | loss=0.06123 | lr=0.000034 | 41.2s",
+    "Epoch 374/1000 | batch 94/94 | loss=0.06124 | lr=0.000034 | 41.0s",
+    "Epoch 375/1000 | batch 36/94 | loss=0.059045 | lr=0.000034"
+  ],
+  "bytes_read": 131072,
+  "file_size_bytes": 48213904,
+  "truncated": true,
+  "modified_at": "2026-07-22T02:29:58Z",
+  "warnings": []
+}

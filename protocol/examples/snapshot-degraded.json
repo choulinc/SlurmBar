@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T02:30:00Z",
+  "agent_version": "0.1.0",
+  "cluster": { "name": null, "hostname": "login01.example.org", "slurm_version": null },
+  "summary": {
+    "running": 1,
+    "pending": 0,
+    "completing": 0,
+    "failed_recently": 0,
+    "completed_recently": 0
+  },
+  "jobs": [
+    {
+      "job_id": "88120",
+      "array_job_id": null,
+      "array_task_id": null,
+      "name": "example-run",
+      "user": "exampleuser",
+      "account": null,
+      "partition": "compute",
+      "qos": null,
+      "state": "RUNNING",
+      "state_raw": "R",
+      "reason": null,
+      "submit_time": "2026-07-22T00:00:00Z",
+      "start_time": "2026-07-22T00:05:00Z",
+      "end_time": null,
+      "elapsed_seconds": 8700,
+      "time_limit_seconds": null,
+      "nodes": ["example-cpu-011"],
+      "node_count": 1,
+      "cpus": 4,
+      "gpus": null,
+      "work_dir": null,
+      "stdout_path": null,
+      "stderr_path": null,
+      "exit_code": null,
+      "signal": null,
+      "source": "squeue",
+      "resources": {
+        "memory_used_bytes": null,
+        "memory_limit_bytes": null,
+        "memory_semantics": "unavailable",
+        "memory_limit_semantics": "unavailable",
+        "gpu_memory_used_bytes": null,
+        "gpu_memory_limit_bytes": null,
+        "gpu_utilization_percent": null,
+        "cpu_utilization_percent": null
+      },
+      "progress": null
+    }
+  ],
+  "warnings": [
+    {
+      "code": "SQUEUE_JSON_UNSUPPORTED",
+      "message": "squeue --json is unavailable; using text output instead.",
+      "severity": "info",
+      "detail": "squeue: exit 1: squeue: invalid option -- 'json'",
+      "job_id": null
+    },
+    {
+      "code": "SACCT_UNAVAILABLE",
+      "message": "sacct is not available; recently finished jobs cannot be shown.",
+      "severity": "info",
+      "detail": "Slurm accounting (slurmdbd) may not be configured on this cluster.",
+      "job_id": null
+    },
+    {
+      "code": "PROGRESS_DIR_MISSING",
+      "message": "No structured progress directory was found; epoch/batch details are unavailable.",
+      "severity": "info",
+      "detail": "Looked in /home/exampleuser/.local/state/slurmbar/jobs.",
+      "job_id": null
+    },
+    {
+      "code": "LOG_PATH_UNKNOWN",
+      "message": "Log paths are not reported by this Slurm version's queue output.",
+      "severity": "info",
+      "detail": "Log-based progress fallback is unavailable for 1 running job(s).",
+      "job_id": null
+    }
+  ]
+}

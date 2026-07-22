@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/choulinc/SlurmBar/protocol/schema/doctor.schema.json",
+  "title": "SlurmBar doctor report",
+  "description": "Response of `slurmbar-agent doctor --json`. Used by the app's Test Connection action.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "ok", "checks", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string" },
+    "agent_version": { "type": ["string", "null"] },
+    "ok": { "type": "boolean", "description": "True when no check has status \"fail\"." },
+    "hostname": { "type": ["string", "null"] },
+    "python_version": { "type": ["string", "null"] },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+    "warnings": { "type": "array", "items": { "type": "object" } }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "required": ["id", "title", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "agent", "python", "hostname", "slurm_commands", "slurm_version",
+            "squeue", "squeue_json", "sacct", "sstat", "progress_dir"
+          ]
+        },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["ok", "warn", "fail", "skip"] },
+        "detail": { "type": ["string", "null"] },
+        "value": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

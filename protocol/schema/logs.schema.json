@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/choulinc/SlurmBar/protocol/schema/logs.schema.json",
+  "title": "SlurmBar log tail response",
+  "description": "Response of `slurmbar-agent logs --job-id ID --stream stdout --lines N --json`. Only a bounded tail is ever read.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "job_id", "stream", "path", "lines", "truncated", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string" },
+    "job_id": { "type": "string" },
+    "stream": { "type": "string", "enum": ["stdout", "stderr"] },
+    "path": { "type": ["string", "null"] },
+    "lines": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Tail lines, oldest first. Control characters other than tab are replaced before transport."
+    },
+    "bytes_read": { "type": ["integer", "null"], "minimum": 0 },
+    "file_size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+    "truncated": { "type": "boolean", "description": "True when the file was larger than the read window." },
+    "modified_at": { "type": ["string", "null"] },
+    "warnings": { "type": "array", "items": { "type": "object" } }
+  }
+}

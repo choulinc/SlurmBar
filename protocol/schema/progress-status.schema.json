@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/choulinc/SlurmBar/protocol/schema/progress-status.schema.json",
+  "title": "slurmbar_progress status file",
+  "description": "Contents of <state_dir>/<job_id>/status.json, written atomically by the slurmbar_progress SDK inside the workload. Read by slurmbar-agent on the login node.",
+  "type": "object",
+  "required": ["schema_version", "job_id", "updated_at"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "job_id": { "type": "string" },
+    "array_job_id": { "type": ["string", "null"] },
+    "array_task_id": { "type": ["string", "null"] },
+    "pid": { "type": ["integer", "null"] },
+    "hostname": { "type": ["string", "null"] },
+    "kind": { "type": ["string", "null"], "description": "Workload kind: training, preprocessing, simulation, sweep, download, generic, ..." },
+    "phase": { "type": ["string", "null"] },
+    "current": { "type": ["number", "null"] },
+    "total": { "type": ["number", "null"], "description": "null when unknown." },
+    "unit": { "type": ["string", "null"] },
+    "message": { "type": ["string", "null"] },
+    "metrics": { "type": "object", "additionalProperties": { "type": ["number", "string", "boolean", "null"] } },
+    "started_at": { "type": ["string", "null"] },
+    "updated_at": { "type": "string" },
+    "completion": { "type": "string", "enum": ["running", "completed", "failed"] },
+    "error": { "type": ["string", "null"] },
+    "writer": { "type": ["string", "null"], "description": "Library name/version that produced the file." }
+  }
+}

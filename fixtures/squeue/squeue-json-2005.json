@@ -1,0 +1,45 @@
+{
+  "meta": { "Slurm": { "version": { "major": 20, "micro": 7, "minor": 11 }, "release": "20.11.7" } },
+  "errors": [],
+  "jobs": [
+    {
+      "account": "exampleaccount",
+      "array_job_id": 0,
+      "array_task_id": null,
+      "cpus": 4,
+      "current_working_directory": "/home/exampleuser/sim",
+      "end_time": 0,
+      "exit_code": 0,
+      "job_id": 88120,
+      "job_state": "RUNNING",
+      "memory_per_node": 16384,
+      "name": "example-run|alpha",
+      "node_count": 1,
+      "nodes": "example-cpu-011",
+      "partition": "compute",
+      "standard_error": "/home/exampleuser/sim/logs/88120.err",
+      "standard_output": "/home/exampleuser/sim/logs/88120.out",
+      "start_time": 1784678700,
+      "state_reason": "None",
+      "submit_time": 1784678400,
+      "time_limit": 720,
+      "user_name": "exampleuser"
+    },
+    {
+      "account": "exampleaccount",
+      "cpus": 2,
+      "job_id": 88121,
+      "job_state": "PENDING",
+      "memory_per_cpu": 2048,
+      "name": "postprocess",
+      "node_count": 1,
+      "nodes": null,
+      "partition": "compute",
+      "start_time": 0,
+      "state_reason": "Priority",
+      "submit_time": 1784678520,
+      "time_limit": 60,
+      "user_name": "exampleuser"
+    }
+  ]
+}

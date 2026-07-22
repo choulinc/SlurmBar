@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Swift / Xcode
+app/.build/
+app/.swiftpm/
+.build/
+*.xcuserdatad/
+xcuserdata/
+DerivedData/
+
+# Build output
+out/
+SlurmBar.app/
+*.pyz
+
+# Editors
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local scratch / backups
+*.bak
+*.orig
+*.rej
+scratch/
+tmp/
+
+# Anything a live-cluster run might drop locally
+*.corrupt.json
+live-*.json
+
+# Downloaded artifacts dropped at the repo root (extracted sources live in design/)
+/*.zip
+
+# Demo data and screenshots for documentation (generated locally, never committed)
+demo/snapshot.json
+demo/screenshots/

@@ -1,0 +1,6 @@
+201540|COMPLETED|gpu|exampleuser|exampleaccount|normal|2026-07-21T10:00:00|2026-07-21T10:05:00|2026-07-21T18:05:00|28800|1440|0:0|1|32|256G|billing=32,cpu=32,gres/gpu=1,mem=256G,node=1|example-gpu-014|example-completed
+201542|FAILED|gpu|exampleuser|exampleaccount|normal|2026-07-21T11:00:00|2026-07-21T11:02:00|2026-07-21T11:44:00|2520|720|1:0|1|16|128G|billing=16,cpu=16,gres/gpu=1,mem=128G,node=1|example-gpu-015|example-failed|with|pipes
+201544|TIMEOUT|cpu|exampleuser|exampleaccount|normal|2026-07-21T12:00:00|2026-07-21T12:00:30|2026-07-21T14:00:30|7200|120|0:1|2|32|64Gn|billing=32,cpu=32,mem=64G,node=2|cpu-[001-002]|example-timeout
+201546|OUT_OF_MEMORY|gpu|exampleuser|exampleaccount|normal|2026-07-21T13:00:00|2026-07-21T13:01:00|2026-07-21T13:22:00|1260|360|0:125|1|8|32G|billing=8,cpu=8,gres/gpu=1,mem=32G,node=1|example-gpu-016|example-memory-test
+201548|CANCELLED by 100234|gpu|exampleuser|exampleaccount|normal|2026-07-21T14:00:00|2026-07-21T14:01:00|2026-07-21T14:30:00|1740|600|0:0|1|4|16G|billing=4,cpu=4,mem=16G,node=1|example-gpu-016|example-cancelled
+201551|RUNNING|gpu|exampleuser|exampleaccount|normal|2026-07-22T00:00:00|2026-07-22T00:10:00|Unknown|8400|1440|0:0|1|32|256G|billing=32,cpu=32,gres/gpu=1,mem=256G,node=1|example-gpu-017|example-training

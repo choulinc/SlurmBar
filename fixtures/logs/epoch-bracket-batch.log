@@ -1,0 +1,8 @@
+[2025-01-01 00:00:00,000][main][INFO] - Epoch 34/100 avg_loss: 0.42 lr: 1e-04 duration: 100s
+[2025-01-01 00:00:02,000][main][INFO] - Epoch 35 [1/50] Loss: 0.80 Duration: 2.0s Mem: 8GB
+[2025-01-01 00:00:04,000][main][INFO] - Epoch 35 [10/50] Loss: 0.70 Duration: 2.0s Mem: 8GB
+[2025-01-01 00:00:06,000][main][INFO] - Epoch 35 [20/50] Loss: 0.50 Duration: 2.0s Mem: 8GB
+[2025-01-01 00:00:08,000][main][INFO] - Epoch 35 [30/50] Loss: 0.45 Duration: 2.0s Mem: 8GB
+[2025-01-01 00:00:10,000][main][INFO] - Epoch 35 [40/50] Loss: 0.43 Duration: 2.0s Mem: 8GB
+[2025-01-01 00:00:12,000][main][INFO] - Epoch 35/100 avg_loss: 0.40 lr: 1e-04 duration: 100s
+[2025-01-01 00:00:14,000][main][INFO] - Epoch 36 [1/50] Loss: 0.60 Duration: 2.0s Mem: 8GB

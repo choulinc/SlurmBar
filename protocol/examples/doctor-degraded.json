@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-22T02:30:00Z",
+  "agent_version": "0.1.0",
+  "ok": true,
+  "hostname": "login01.example.org",
+  "python_version": "3.6.8",
+  "checks": [
+    { "id": "agent", "title": "SlurmBar agent", "status": "ok", "detail": null, "value": "0.1.0" },
+    { "id": "python", "title": "Remote Python", "status": "ok", "detail": "/usr/bin/python3", "value": "3.6.8" },
+    { "id": "slurm_commands", "title": "Slurm commands", "status": "warn", "detail": "Not found: sstat. Related features are disabled.", "value": "sacct, scancel, scontrol, sinfo, squeue" },
+    { "id": "slurm_version", "title": "Slurm version", "status": "ok", "detail": null, "value": "slurm 20.11.7" },
+    { "id": "squeue", "title": "squeue", "status": "ok", "detail": null, "value": "1 job(s) in queue" },
+    { "id": "squeue_json", "title": "squeue --json", "status": "warn", "detail": "Not supported; SlurmBar will use machine-readable text output instead.", "value": null },
+    { "id": "sacct", "title": "Accounting (sacct)", "status": "warn", "detail": "Accounting is unavailable; recently finished jobs will not be shown.", "value": null },
+    { "id": "sstat", "title": "Live usage (sstat)", "status": "warn", "detail": "sstat is not installed; live memory is unavailable.", "value": null },
+    { "id": "progress_dir", "title": "Progress directory", "status": "warn", "detail": "Not present yet. It is created the first time a job reports progress with slurmbar_progress.", "value": "/home/exampleuser/.local/state/slurmbar/jobs" }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,372 @@
+{
+  "meta": {
+    "Slurm": {
+      "version": {
+        "major": 25,
+        "micro": 0,
+        "minor": 11
+      },
+      "release": "25.11.0"
+    }
+  },
+  "errors": [],
+  "warnings": [],
+  "jobs": [
+    {
+      "job_id": 500100,
+      "array_job_id": {
+        "set": true,
+        "infinite": false,
+        "number": 500103
+      },
+      "array_task_id": {
+        "set": true,
+        "infinite": false,
+        "number": 0
+      },
+      "name": "example-array",
+      "user_name": "exampleuser",
+      "account": "exampleaccount",
+      "partition": "gpu",
+      "qos": "normal",
+      "job_state": [
+        "RUNNING"
+      ],
+      "state_reason": "None",
+      "submit_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784696385
+      },
+      "start_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784696385
+      },
+      "end_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784739585
+      },
+      "time_limit": {
+        "set": true,
+        "infinite": false,
+        "number": 720
+      },
+      "nodes": "example-node-a",
+      "node_count": {
+        "set": true,
+        "infinite": false,
+        "number": 1
+      },
+      "cpus": {
+        "set": true,
+        "infinite": false,
+        "number": 12
+      },
+      "tres_per_node": "gres/gpu:Example200:1",
+      "tres_req_str": "cpu=12,mem=10G,node=1,billing=12,gres/gpu=1",
+      "tres_alloc_str": "cpu=12,mem=10G,node=1,billing=12,gres/gpu=1",
+      "gres_detail": [
+        "gpu:Example200:1(IDX:2)"
+      ],
+      "memory_per_node": {
+        "set": true,
+        "infinite": false,
+        "number": 65536
+      },
+      "memory_per_cpu": {
+        "set": false,
+        "infinite": false,
+        "number": 0
+      },
+      "current_working_directory": "/home/exampleuser/slurmbar-demo",
+      "standard_output": "/home/exampleuser/slurmbar-demo/logs/%x-%A_%a.out",
+      "standard_error": "/home/exampleuser/slurmbar-demo/logs/%x-%A_%a.err",
+      "exit_code": {
+        "status": [
+          "SUCCESS"
+        ],
+        "return_code": {
+          "set": true,
+          "infinite": false,
+          "number": 0
+        },
+        "signal": {
+          "id": {
+            "set": false,
+            "infinite": false,
+            "number": 0
+          },
+          "name": ""
+        }
+      }
+    },
+    {
+      "job_id": 500106,
+      "array_job_id": {
+        "set": true,
+        "infinite": false,
+        "number": 500103
+      },
+      "array_task_id": {
+        "set": true,
+        "infinite": false,
+        "number": 1
+      },
+      "name": "example-array",
+      "user_name": "exampleuser",
+      "account": "exampleaccount",
+      "partition": "gpu",
+      "qos": "normal",
+      "job_state": [
+        "RUNNING"
+      ],
+      "state_reason": "None",
+      "submit_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784696385
+      },
+      "start_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784696386
+      },
+      "end_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784739586
+      },
+      "time_limit": {
+        "set": true,
+        "infinite": false,
+        "number": 720
+      },
+      "nodes": "example-node-a",
+      "node_count": {
+        "set": true,
+        "infinite": false,
+        "number": 1
+      },
+      "cpus": {
+        "set": true,
+        "infinite": false,
+        "number": 12
+      },
+      "tres_per_node": "gres/gpu:Example200:1",
+      "tres_req_str": "cpu=12,mem=10G,node=1,billing=12,gres/gpu=1",
+      "tres_alloc_str": "cpu=12,mem=10G,node=1,billing=12,gres/gpu=1",
+      "gres_detail": [
+        "gpu:Example200:1(IDX:3)"
+      ],
+      "memory_per_node": {
+        "set": true,
+        "infinite": false,
+        "number": 65536
+      },
+      "memory_per_cpu": {
+        "set": false,
+        "infinite": false,
+        "number": 0
+      },
+      "current_working_directory": "/home/exampleuser/slurmbar-demo",
+      "standard_output": "/home/exampleuser/slurmbar-demo/logs/%x-%A_%a.out",
+      "standard_error": "/home/exampleuser/slurmbar-demo/logs/%x-%A_%a.err",
+      "exit_code": {
+        "status": [
+          "SUCCESS"
+        ],
+        "return_code": {
+          "set": true,
+          "infinite": false,
+          "number": 0
+        },
+        "signal": {
+          "id": {
+            "set": false,
+            "infinite": false,
+            "number": 0
+          },
+          "name": ""
+        }
+      }
+    },
+    {
+      "job_id": 500109,
+      "array_job_id": {
+        "set": true,
+        "infinite": false,
+        "number": 0
+      },
+      "array_task_id": {
+        "set": false,
+        "infinite": false,
+        "number": 0
+      },
+      "name": "example-array",
+      "user_name": "exampleuser",
+      "account": "exampleaccount",
+      "partition": "gpu",
+      "qos": "normal",
+      "job_state": [
+        "PENDING"
+      ],
+      "state_reason": "Dependency",
+      "submit_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784696496
+      },
+      "start_time": {
+        "set": true,
+        "infinite": false,
+        "number": 0
+      },
+      "end_time": {
+        "set": true,
+        "infinite": false,
+        "number": 0
+      },
+      "time_limit": {
+        "set": true,
+        "infinite": false,
+        "number": 120
+      },
+      "nodes": "",
+      "node_count": {
+        "set": true,
+        "infinite": false,
+        "number": 1
+      },
+      "cpus": {
+        "set": true,
+        "infinite": false,
+        "number": 8
+      },
+      "tres_per_node": "gres/gpu:Example200:1",
+      "tres_req_str": "cpu=8,mem=20G,node=1,billing=8,gres/gpu=1",
+      "tres_alloc_str": "",
+      "gres_detail": [],
+      "memory_per_node": {
+        "set": true,
+        "infinite": false,
+        "number": 65536
+      },
+      "memory_per_cpu": {
+        "set": false,
+        "infinite": false,
+        "number": 0
+      },
+      "current_working_directory": "/home/exampleuser/slurmbar-demo",
+      "standard_output": "/home/exampleuser/slurmbar-demo/logs/%x-%j.out",
+      "standard_error": "/home/exampleuser/slurmbar-demo/logs/%x-%j.err",
+      "exit_code": {
+        "status": [
+          "SUCCESS"
+        ],
+        "return_code": {
+          "set": true,
+          "infinite": false,
+          "number": 0
+        },
+        "signal": {
+          "id": {
+            "set": false,
+            "infinite": false,
+            "number": 0
+          },
+          "name": ""
+        }
+      }
+    },
+    {
+      "job_id": 500112,
+      "array_job_id": {
+        "set": true,
+        "infinite": false,
+        "number": 500112
+      },
+      "array_task_id": {
+        "set": false,
+        "infinite": false,
+        "number": 0
+      },
+      "name": "example-array",
+      "user_name": "exampleuser",
+      "account": "exampleaccount",
+      "partition": "gpu",
+      "qos": "normal",
+      "job_state": [
+        "PENDING"
+      ],
+      "state_reason": "Dependency",
+      "submit_time": {
+        "set": true,
+        "infinite": false,
+        "number": 1784696957
+      },
+      "start_time": {
+        "set": true,
+        "infinite": false,
+        "number": 0
+      },
+      "end_time": {
+        "set": true,
+        "infinite": false,
+        "number": 0
+      },
+      "time_limit": {
+        "set": true,
+        "infinite": false,
+        "number": 1080
+      },
+      "nodes": "",
+      "node_count": {
+        "set": true,
+        "infinite": false,
+        "number": 1
+      },
+      "cpus": {
+        "set": true,
+        "infinite": false,
+        "number": 12
+      },
+      "tres_per_node": "gres/gpu:Example200:1",
+      "tres_req_str": "cpu=12,mem=30G,node=1,billing=12,gres/gpu=1",
+      "tres_alloc_str": "",
+      "gres_detail": [],
+      "memory_per_node": {
+        "set": true,
+        "infinite": false,
+        "number": 65536
+      },
+      "memory_per_cpu": {
+        "set": false,
+        "infinite": false,
+        "number": 0
+      },
+      "current_working_directory": "/home/exampleuser/slurmbar-demo",
+      "standard_output": "/home/exampleuser/slurmbar-demo/logs/%x-%A_%a.out",
+      "standard_error": "/home/exampleuser/slurmbar-demo/logs/%x-%A_%a.err",
+      "exit_code": {
+        "status": [
+          "SUCCESS"
+        ],
+        "return_code": {
+          "set": true,
+          "infinite": false,
+          "number": 0
+        },
+        "signal": {
+          "id": {
+            "set": false,
+            "infinite": false,
+            "number": 0
+          },
+          "name": ""
+        }
+      }
+    }
+  ]
+}

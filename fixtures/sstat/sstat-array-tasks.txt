@@ -1,0 +1,6 @@
+500100.extern||
+500100.batch|100000K|90000K|0|cpu=01:24:39,energy=0,mem=90000K,pages=104,vmem=0
+500106.extern||
+500106.batch|200000K|180000K|0|cpu=01:24:38,energy=0,mem=180000K,pages=98,vmem=0
+500109.extern||
+500109.batch|150000K|140000K|0|cpu=01:24:37,energy=0,mem=140000K,pages=91,vmem=0

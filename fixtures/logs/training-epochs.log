@@ -1,0 +1,9 @@
+Loading dataset from /home/exampleuser/slurmbar-demo/data
+Using 1 GPU(s), batch size 64
+Epoch 370/1000 | batch 94/94 | loss=0.06120 | lr=0.000034 | 41.2s
+Epoch 371/1000 | batch 94/94 | loss=0.06121 | lr=0.000034 | 41.2s
+Epoch 372/1000 | batch 94/94 | loss=0.06122 | lr=0.000034 | 41.2s
+Epoch 373/1000 | batch 94/94 | loss=0.06123 | lr=0.000034 | 41.2s
+Epoch 374/1000 | batch 94/94 | loss=0.06124 | lr=0.000034 | 41.2s
+Epoch 375/1000 | batch 94/94 | loss=0.06125 | lr=0.000034 | 41.2s
+Epoch 375/1000 | batch 36/94 | loss=0.059045 | lr=0.000034

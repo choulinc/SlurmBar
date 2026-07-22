@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "job_id": "201551",
+  "array_job_id": null,
+  "array_task_id": null,
+  "pid": 148231,
+  "hostname": "example-gpu-017",
+  "kind": "training",
+  "phase": "train",
+  "current": 375,
+  "total": 1000,
+  "unit": "epoch",
+  "message": null,
+  "metrics": {
+    "loss": 0.059045,
+    "learning_rate": 0.000034,
+    "batch_current": 36,
+    "batch_total": 94
+  },
+  "started_at": "2026-07-22T00:10:00Z",
+  "updated_at": "2026-07-22T02:29:55Z",
+  "completion": "running",
+  "error": null,
+  "writer": "slurmbar_progress/0.1.0"
+}
