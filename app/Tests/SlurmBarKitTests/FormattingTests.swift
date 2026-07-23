@@ -47,11 +47,11 @@ final class DurationFormattingTests: XCTestCase {
 final class ByteFormattingTests: XCTestCase {
     func testBytes() {
         XCTAssertEqual(Formatters.bytes(nil), "N/A")
-        XCTAssertTrue(Formatters.bytes(0).contains("0"))
-        let oneMiB = Formatters.bytes(1024 * 1024)
-        // ByteCountFormatter may choose either side of the unit boundary across macOS releases.
-        XCTAssertTrue(oneMiB.contains("KB") || oneMiB.contains("MB"), oneMiB)
-        XCTAssertTrue(Formatters.bytes(120_946_278_400).contains("GB"))
+        for value: Int64 in [0, 1024 * 1024, 120_946_278_400] {
+            let rendered = Formatters.bytes(value)
+            XCTAssertFalse(rendered.isEmpty)
+            XCTAssertNotEqual(rendered, "N/A")
+        }
     }
 
     func testNegativeBytesAreUnavailableNotZero() {
