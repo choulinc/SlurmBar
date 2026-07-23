@@ -39,6 +39,22 @@ password prompts, no bypassing `known_hosts`. No web view, no Electron.
 
 ---
 
+## Screenshots
+
+All screenshots use the repository's fabricated `demo-cluster` data. They do not show a real
+cluster, account, node, path or job.
+
+<p align="center">
+  <img src="docs/images/popover.png" alt="SlurmBar job list showing fabricated demo jobs" width="360">
+</p>
+
+<p align="center">
+  <img src="docs/images/job-detail.png" alt="SlurmBar job detail showing fabricated progress and resources" width="360">
+  <img src="docs/images/job-detail-logs.png" alt="SlurmBar job detail showing a fabricated log tail" width="360">
+</p>
+
+---
+
 ## Quickstart
 
 Fifteen minutes from nothing to jobs in your menu bar. Every step ends with a check, so you
@@ -164,7 +180,7 @@ It finishes by printing a health report:
   [  ok  ] Remote Python: 3.9.21
   [  ok  ] Slurm commands: squeue, sacct, sstat, scancel, scontrol, sinfo
   [  ok  ] Slurm version: slurm 24.05.0
-  [  ok  ] squeue: 43 job(s) in queue
+  [  ok  ] squeue: 8 job(s) in queue
   [  ok  ] squeue --json
   [  ok  ] Accounting (sacct)
   [ warn ] Progress directory

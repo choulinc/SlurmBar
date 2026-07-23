@@ -22,7 +22,8 @@ sleep 1
 
 echo "==> Launching in demo mode"
 SLURMBAR_DEMO_SNAPSHOT="$REPO_ROOT/demo/snapshot.json" \
-    ./out/SlurmBar.app/Contents/MacOS/SlurmBar &
+    ./out/SlurmBar.app/Contents/MacOS/SlurmBar \
+        -AppleLanguages '(en)' -AppleLocale en_US &
 APP_PID=$!
 trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
 
