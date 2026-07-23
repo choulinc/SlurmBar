@@ -48,7 +48,9 @@ final class ByteFormattingTests: XCTestCase {
     func testBytes() {
         XCTAssertEqual(Formatters.bytes(nil), "N/A")
         XCTAssertTrue(Formatters.bytes(0).contains("0"))
-        XCTAssertTrue(Formatters.bytes(1024 * 1024).contains("MB"))
+        let oneMiB = Formatters.bytes(1024 * 1024)
+        // ByteCountFormatter may choose either side of the unit boundary across macOS releases.
+        XCTAssertTrue(oneMiB.contains("KB") || oneMiB.contains("MB"), oneMiB)
         XCTAssertTrue(Formatters.bytes(120_946_278_400).contains("GB"))
     }
 
