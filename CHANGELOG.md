@@ -2,6 +2,57 @@
 
 Notable changes per release. Dates are the release date, not the last commit.
 
+## 0.2.2 — 2026-07-24
+
+One question — "is this job finished, and how did it end?" — was being answered independently
+in six places, and they did not agree. It is now answered once, by `JobOutcome` and
+`ProgressDisposition`, and every surface reads that.
+
+### Fixed — surfaces contradicting each other
+
+- **Cancellations were counted in no summary cell at all.** The "Failed & cancelled" section
+  header counted them; the strip's "Failed" cell counted only genuine failures. On a real
+  snapshot the header read 74 above cells accounting for 61. The cell now covers the whole
+  section, and `cancelled_recently` is a separate count end to end.
+- **The menu bar kept reporting a finished job's percentage.** A pinned job that ended at 63%
+  showed "63%" indefinitely, while the popover had already filed it under a finished section
+  and stopped drawing its bar.
+- **A progress bar vanished mid-flight on `COMPLETING` jobs.** The agent's log fallback ran
+  only for `RUNNING`, but the app displays `COMPLETING` under "Running", so the bar
+  disappeared a poll before the job moved sections.
+- **"Job completed" was announced for runs that reported their own failure.** A caught
+  exception that a launcher turns into exit 0 now notifies as a failure.
+- **An unrecognized finished state was grouped as a failure but counted as neither.** It is
+  now `indeterminate`: filed with the failures, counted with them, never read as success.
+
+### Changed — completed jobs and their bars
+
+- **A run that reached its target gets a full green bar again.** 0.2.1 dropped the bar from
+  every completed job because a partial bar next to "Completed" reads as unfinished. That was
+  too blunt: when the counter did reach the total, or the workload declared success, a full bar
+  is a fact.
+- **Early stopping is now representable.** `slurmbar_progress` reporting `completion="completed"`
+  marks a run finished regardless of where its counter stopped, so 284 of 300 epochs shows as
+  done rather than as 95%.
+- **The genuinely ambiguous case says so.** A clean exit with the counter short of the total
+  gets no bar, an "ended at 284 / 300" counter, and one line explaining that an early-stopped
+  run and one whose last update was never written look identical from outside. Slurm records an
+  exit status, not an intent; naming a cause would be a guess.
+- **Disagreements between Slurm and the workload are shown, not resolved.** Both witnesses are
+  answering different questions — how the process exited, and whether the work finished — and
+  which one matters depends on what you were doing.
+
+### Added
+
+- **A job's last progress reading survives it leaving the queue.** `sacct` has no `StdOut`
+  field, so once a job is out of `squeue` the agent cannot locate its log, let alone read it —
+  log-derived progress was discarded at exactly the moment "how far did it get?" starts to
+  matter. The app keeps the reading from the last poll the job was alive for, marked as a
+  remembered value with its ETA dropped. Previously only workloads using the SDK could answer
+  that question.
+- The agent also reads logs for the few most recently finished jobs, under a small separate
+  budget so the per-poll cost does not grow with the history window.
+
 ## 0.2.1 — 2026-07-22
 
 Public-release preparation:

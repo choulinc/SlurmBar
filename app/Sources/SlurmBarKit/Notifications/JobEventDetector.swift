@@ -135,7 +135,7 @@ public final class JobEventDetector {
         // it if it is already finished — a newly submitted RUNNING job is not an event.
         let previousState = previous?.state
         if previousState != job.state, job.state.isFinished, previousState?.isFinished != true {
-            if let kind = Self.kind(for: job.state) {
+            if let kind = Self.kind(for: job) {
                 events.append(JobEvent(
                     kind: kind,
                     jobID: job.jobID,
@@ -170,8 +170,13 @@ public final class JobEventDetector {
         return events
     }
 
-    private static func kind(for state: JobState) -> JobEvent.Kind? {
-        switch state {
+    private static func kind(for job: Job) -> JobEvent.Kind? {
+        // A workload that reported its own failure is not a success, whatever exit status the
+        // launcher handed back. Announcing "Job completed" for a run that logged a crash is
+        // the most misleading thing this detector could do.
+        if job.completionDisagreement == .reportedFailureButExitedClean { return .failed }
+
+        switch job.state {
         case .completed: return .completed
         case .timeout, .deadline: return .timedOut
         case .outOfMemory: return .outOfMemory
@@ -190,10 +195,12 @@ public final class JobEventDetector {
         if let exitCode = job.exitCode, exitCode != 0 {
             parts.append("exit \(exitCode)")
         }
-        if let progress = job.progress, let counter = progress.counterDescription,
-           job.state.isFailure
-        {
-            parts.append("stopped at \(counter)")
+        if let counter = job.progress?.counterDescription {
+            switch job.progressDisposition {
+            case .stoppedAt: parts.append("stopped at \(counter)")
+            case .endedShortOfTarget: parts.append("ended at \(counter)")
+            case .live, .reachedTarget, .none: break
+            }
         }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }

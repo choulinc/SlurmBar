@@ -12,6 +12,7 @@
     "pending": 2,
     "completing": 0,
     "failed_recently": 2,
+    "cancelled_recently": 0,
     "completed_recently": 1
   },
   "jobs": [
@@ -32,7 +33,9 @@
       "end_time": null,
       "elapsed_seconds": 8400,
       "time_limit_seconds": 86400,
-      "nodes": ["example-gpu-017"],
+      "nodes": [
+        "example-gpu-017"
+      ],
       "node_count": 1,
       "cpus": 32,
       "gpus": 1,
@@ -70,7 +73,7 @@
         "error": null,
         "metrics": {
           "loss": 0.059045,
-          "learning_rate": 0.000034,
+          "learning_rate": 3.4e-05,
           "batch_current": 36,
           "batch_total": 94
         }
@@ -93,7 +96,10 @@
       "end_time": null,
       "elapsed_seconds": 5390,
       "time_limit_seconds": null,
-      "nodes": ["example-cpu-004", "example-cpu-005"],
+      "nodes": [
+        "example-cpu-004",
+        "example-cpu-005"
+      ],
       "node_count": 2,
       "cpus": 16,
       "gpus": null,
@@ -129,7 +135,9 @@
         "eta_seconds": null,
         "completion": "running",
         "error": null,
-        "metrics": { "throughput_per_second": 0.9 }
+        "metrics": {
+          "throughput_per_second": 0.9
+        }
       }
     },
     {
@@ -149,7 +157,9 @@
       "end_time": null,
       "elapsed_seconds": 1770,
       "time_limit_seconds": 43200,
-      "nodes": ["example-cpu-011"],
+      "nodes": [
+        "example-cpu-011"
+      ],
       "node_count": 1,
       "cpus": 8,
       "gpus": null,
@@ -185,7 +195,9 @@
         "eta_seconds": null,
         "completion": null,
         "error": null,
-        "metrics": { "loss": "nan" }
+        "metrics": {
+          "loss": "nan"
+        }
       }
     },
     {
@@ -283,7 +295,9 @@
       "end_time": "2026-07-21T18:05:00Z",
       "elapsed_seconds": 28800,
       "time_limit_seconds": 86400,
-      "nodes": ["example-gpu-014"],
+      "nodes": [
+        "example-gpu-014"
+      ],
       "node_count": 1,
       "cpus": 32,
       "gpus": 1,
@@ -319,7 +333,9 @@
         "eta_seconds": null,
         "completion": "completed",
         "error": null,
-        "metrics": { "loss": 0.031204 }
+        "metrics": {
+          "loss": 0.031204
+        }
       }
     },
     {
@@ -339,7 +355,9 @@
       "end_time": "2026-07-21T13:22:00Z",
       "elapsed_seconds": 1260,
       "time_limit_seconds": 21600,
-      "nodes": ["example-gpu-016"],
+      "nodes": [
+        "example-gpu-016"
+      ],
       "node_count": 1,
       "cpus": 8,
       "gpus": 1,
@@ -378,7 +396,9 @@
       "end_time": "2026-07-21T11:44:00Z",
       "elapsed_seconds": 2520,
       "time_limit_seconds": 43200,
-      "nodes": ["example-gpu-015"],
+      "nodes": [
+        "example-gpu-015"
+      ],
       "node_count": 1,
       "cpus": 16,
       "gpus": 1,
@@ -414,7 +434,9 @@
         "eta_seconds": null,
         "completion": "failed",
         "error": "RuntimeError: CUDA out of memory",
-        "metrics": { "loss": "nan" }
+        "metrics": {
+          "loss": "nan"
+        }
       }
     }
   ],

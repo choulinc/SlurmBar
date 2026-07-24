@@ -105,7 +105,12 @@ public enum MenuBarLabelBuilder {
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
 
-    /// `37%` for the pinned job, when it has a progress reading.
+    /// `37%` for the pinned job, while it is still making progress.
+    ///
+    /// A finished job reports nothing here even though its last reading is still in the
+    /// snapshot. The menu bar is a live indicator: a pinned job that ended at 63% used to keep
+    /// showing "63%" indefinitely, contradicting the popover, which had already moved it into a
+    /// finished section and stopped drawing its bar. Returning nil falls back to the counts.
     public static func pinnedPercentText(snapshot: Snapshot, pinnedJobID: String?) -> String? {
         let candidate: Job?
         if let pinnedJobID {
@@ -116,7 +121,10 @@ public enum MenuBarLabelBuilder {
                 .filter { $0.state == .running && $0.progress?.fraction != nil }
                 .max { ($0.elapsedSeconds ?? 0) < ($1.elapsedSeconds ?? 0) }
         }
-        guard let job = candidate, let fraction = job.progress?.fraction else { return nil }
+        guard let job = candidate,
+              job.progressDisposition == .live,
+              let fraction = job.progress?.fraction
+        else { return nil }
         return "\(Int((fraction * 100).rounded()))%"
     }
 
@@ -126,6 +134,9 @@ public enum MenuBarLabelBuilder {
         parts.append("\(summary.pending) pending")
         if summary.failedRecently > 0 {
             parts.append("\(summary.failedRecently) recently failed")
+        }
+        if summary.cancelledRecently > 0 {
+            parts.append("\(summary.cancelledRecently) recently cancelled")
         }
         if case .failed(let failure, _) = connection {
             parts.append(failure.title)

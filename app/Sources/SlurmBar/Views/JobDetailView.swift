@@ -341,19 +341,32 @@ private struct ProgressSection: View {
                         .background(.quaternary, in: Capsule())
                 }
                 Spacer(minLength: 0)
-                // The percentage goes with the bar: on a completed job it would read as though
-                // the workload stopped short.
-                if job.showsProgressBar, let fraction = progress.fraction {
+                // The percentage goes with the bar. Where the bar is suppressed because the
+                // counter cannot be trusted as a completion figure, the percentage would carry
+                // exactly the same false claim.
+                if let fraction = job.displayedProgressFraction {
                     Text(Formatters.percent(fraction * 100, decimals: 1))
                         .font(.caption.monospacedDigit().weight(.medium))
                 }
             }
 
-            if job.showsProgressBar, let fraction = progress.fraction {
+            if let fraction = job.displayedProgressFraction {
                 ProgressView(value: fraction)
                     .progressViewStyle(.linear)
                     .controlSize(.small)
+                    .tint(ProgressPalette.tint(for: job.progressDisposition))
                     .opacity(progress.stale ? 0.5 : 1)
+            }
+
+            if let note = dispositionNote {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let disagreement = job.completionDisagreement {
+                DisagreementNote(disagreement: disagreement)
             }
 
             DetailRows(rows: rows)
@@ -374,6 +387,25 @@ private struct ProgressSection: View {
         }
     }
 
+    /// The one line of prose that says what the counter means now that the job has ended.
+    ///
+    /// Only the ambiguous case gets an explanation. Naming a cause would be a guess: Slurm
+    /// records an exit status, not an intent, and an early-stopped run is indistinguishable
+    /// from one whose final update never reached disk.
+    private var dispositionNote: String? {
+        switch job.progressDisposition {
+        case .endedShortOfTarget:
+            return "Exited cleanly before the counter reached its total. An early-stopped run "
+                + "looks like this; so does one whose last progress update was never written. "
+                + "Report completion from the workload to tell them apart."
+        case .reachedTarget where progress.completion == .completed
+            && (progress.current ?? 0) < (progress.total ?? 0):
+            return "The workload reported that it finished, short of the counter's total."
+        case .live, .reachedTarget, .stoppedAt, .none:
+            return nil
+        }
+    }
+
     private var rows: [DetailRow] {
         var rows: [DetailRow] = []
         if let kind = progress.kind { rows.append(DetailRow(label: "Workload", value: kind)) }
@@ -381,10 +413,39 @@ private struct ProgressSection: View {
         rows.append(DetailRow(
             label: "Updated",
             value: progress.updatedAt.map { Formatters.relativeTime(from: $0) } ?? Formatters.notAvailable,
-            annotation: progress.stale ? "stale" : nil
+            // "last reading" wins over "stale": for a job that has ended, the reading not
+            // having changed recently is expected rather than a warning sign.
+            annotation: progress.carriedForward ? "last reading before the job ended"
+                : (progress.stale ? "stale" : nil)
         ))
         if let message = progress.message { rows.append(DetailRow(label: "Message", value: message)) }
         return rows
+    }
+}
+
+/// Shown when Slurm's record and the workload's own report do not agree.
+///
+/// Presented rather than resolved. Both witnesses are telling the truth about the question they
+/// can answer, and which one matters depends on what the user was trying to do.
+private struct DisagreementNote: View {
+    let disagreement: CompletionDisagreement
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: "exclamationmark.triangle")
+                .imageScale(.small)
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(disagreement.summary)
+                    .font(.caption.weight(.medium))
+                Text(disagreement.explanation)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

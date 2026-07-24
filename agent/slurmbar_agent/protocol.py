@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.2.1"
+AGENT_VERSION = "0.2.2"
 
 # --- normalized job states -------------------------------------------------------------------
 

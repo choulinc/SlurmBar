@@ -12,6 +12,7 @@
     "pending": 0,
     "completing": 0,
     "failed_recently": 0,
+    "cancelled_recently": 0,
     "completed_recently": 0
   },
   "jobs": [],

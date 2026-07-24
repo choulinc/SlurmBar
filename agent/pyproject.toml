@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slurmbar-agent"
-version = "0.2.1"
+version = "0.2.2"
 description = "One-shot Slurm data collector for SlurmBar. Runs on a cluster login node over SSH."
 readme = "README.md"
 requires-python = ">=3.7"

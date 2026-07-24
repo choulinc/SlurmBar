@@ -71,7 +71,7 @@ struct JobRowView: View {
     @ViewBuilder
     private var runningDetails: some View {
         if let progress = job.progress {
-            ProgressBlock(progress: progress)
+            ProgressBlock(progress: progress, job: job)
         }
 
         MetadataLine(items: runningMetadata)
@@ -146,8 +146,8 @@ struct JobRowView: View {
     private var finishedDetails: some View {
         MetadataLine(items: finishedMetadata)
 
-        if let progress = job.progress, let counter = progress.counterDescription, job.state.isFailure {
-            Text("stopped at \(counter)")
+        if let counter = job.progress?.counterDescription, let prefix = counterPrefix {
+            Text("\(prefix) \(counter)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -157,6 +157,18 @@ struct JobRowView: View {
                 .foregroundStyle(.red)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// How to introduce the counter on a finished job, or nil when it adds nothing.
+    ///
+    /// A run that reached its target needs no gloss — the state already says it completed. The
+    /// two cases worth a word are the one that ended early and the one that died partway.
+    private var counterPrefix: String? {
+        switch job.progressDisposition {
+        case .stoppedAt: return "stopped at"
+        case .endedShortOfTarget: return "ended at"
+        case .live, .reachedTarget, .none: return nil
         }
     }
 
@@ -196,10 +208,30 @@ struct JobRowView: View {
     }
 }
 
+// MARK: - Progress colours
+
+/// One place deciding what colour a progress bar is, so the bar and the state icon beside it
+/// can never tell different stories.
+enum ProgressPalette {
+    static func tint(for disposition: ProgressDisposition) -> Color {
+        switch disposition {
+        // Blue matches the running state icon: the row reads as one object.
+        case .live: return .blue
+        // Green matches the completed state icon, and is only ever used on a full bar.
+        case .reachedTarget: return .green
+        // Neither running nor finished. Orange says "this is where it got to", without
+        // claiming the job itself failed — a cancelled job gets this too.
+        case .stoppedAt: return .orange
+        case .endedShortOfTarget, .none: return .secondary
+        }
+    }
+}
+
 // MARK: - Progress block
 
 private struct ProgressBlock: View {
     let progress: JobProgress
+    let job: Job
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -234,16 +266,17 @@ private struct ProgressBlock: View {
                         .foregroundStyle(.orange)
                         .help("The workload has not updated its progress recently.")
                 }
-                if let fraction = progress.fraction {
+                if let fraction = job.displayedProgressFraction {
                     Text(Formatters.percent(fraction * 100))
                         .font(.caption.monospacedDigit().weight(.medium))
                 }
             }
 
-            if let fraction = progress.fraction {
+            if let fraction = job.displayedProgressFraction {
                 ProgressView(value: fraction)
                     .progressViewStyle(.linear)
                     .controlSize(.small)
+                    .tint(ProgressPalette.tint(for: job.progressDisposition))
                     .opacity(progress.stale ? 0.5 : 1)
             }
 

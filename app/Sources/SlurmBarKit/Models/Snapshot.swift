@@ -61,24 +61,53 @@ public struct JobSummary: Codable, Hashable, Sendable {
     public let pending: Int
     public let completing: Int
     public let failedRecently: Int
+    /// Cancelled or preempted. Split out from ``failedRecently`` so that the two together
+    /// account for the whole "Failed & cancelled" section; before the split, cancellations
+    /// were counted in no cell at all and the strip silently understated the section.
+    public let cancelledRecently: Int
     public let completedRecently: Int
 
     enum CodingKeys: String, CodingKey {
         case running, pending, completing
         case failedRecently = "failed_recently"
+        case cancelledRecently = "cancelled_recently"
         case completedRecently = "completed_recently"
     }
 
-    public init(running: Int, pending: Int, completing: Int, failedRecently: Int, completedRecently: Int) {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        running = try container.decode(Int.self, forKey: .running)
+        pending = try container.decode(Int.self, forKey: .pending)
+        completing = try container.decode(Int.self, forKey: .completing)
+        failedRecently = try container.decode(Int.self, forKey: .failedRecently)
+        // Absent from agents older than this field. Zero is the honest default: an old agent
+        // did not tell us, and inventing a number would be worse than showing none.
+        cancelledRecently = try container.decodeIfPresent(Int.self, forKey: .cancelledRecently) ?? 0
+        completedRecently = try container.decode(Int.self, forKey: .completedRecently)
+    }
+
+    public init(
+        running: Int,
+        pending: Int,
+        completing: Int,
+        failedRecently: Int,
+        cancelledRecently: Int = 0,
+        completedRecently: Int
+    ) {
         self.running = running
         self.pending = pending
         self.completing = completing
         self.failedRecently = failedRecently
+        self.cancelledRecently = cancelledRecently
         self.completedRecently = completedRecently
     }
 
+    /// Everything in the "Failed & cancelled" section.
+    public var unsuccessfulRecently: Int { failedRecently + cancelledRecently }
+
     public static let empty = JobSummary(
-        running: 0, pending: 0, completing: 0, failedRecently: 0, completedRecently: 0
+        running: 0, pending: 0, completing: 0,
+        failedRecently: 0, cancelledRecently: 0, completedRecently: 0
     )
 }
 
@@ -261,23 +290,89 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
         return parts.joined(separator: " · ")
     }
 
-    /// Whether a progress bar is meaningful for this job.
+    /// How this job ended, as far as Slurm is concerned. The one place that decides.
+    public var outcome: JobOutcome {
+        if state.isActive { return .active }
+        if state == .completed { return .succeeded }
+        if state.isFailure { return .failed }
+        if state == .cancelled || state == .preempted { return .cancelled }
+        return .indeterminate
+    }
+
+    /// What to do with this job's progress reading.
     ///
-    /// A bar answers "how far along is this?", which only has meaning while the job can still
-    /// progress. Once a job has finished successfully the answer is "it is done", and the state
-    /// already says so.
-    ///
-    /// Filling the bar to 100% instead would be a fabrication whenever the last reported counter
-    /// is short of the total — a run that stopped at epoch 652 of 1000 and exited cleanly did
-    /// not reach 1000, and a full bar would claim it did. Leaving a half-empty bar next to
-    /// "Completed" is just as wrong the other way. So the bar is dropped and the counter, which
-    /// is factual, is kept.
-    ///
-    /// Failures keep their bar: "how far did it get before it died" is exactly the useful
-    /// question there.
+    /// Reconciles two witnesses that answer different questions: Slurm knows how the process
+    /// exited, the workload knows whether the work finished. See ``ProgressDisposition``.
+    public var progressDisposition: ProgressDisposition {
+        guard let progress, progress.current != nil || progress.percent != nil else { return .none }
+        guard outcome.isFinished else { return .live }
+
+        switch progress.completion {
+        case .completed:
+            // The workload said so itself. This is the only signal that can tell an
+            // early-stopped run from a truncated one, and it outranks the counter: a run that
+            // stops at epoch 284 of 300 because validation loss plateaued *did* finish.
+            return .reachedTarget
+        case .failed:
+            return .stoppedAt
+        case .running, nil:
+            // No declaration — either the workload does not use slurmbar_progress, or it died
+            // before it could report. Fall back to Slurm's verdict plus the counter.
+            guard outcome == .succeeded else { return .stoppedAt }
+            guard let current = progress.current, let total = progress.total, total > 0 else {
+                // Nothing to fall short of.
+                return .reachedTarget
+            }
+            return current >= total - 1e-9 ? .reachedTarget : .endedShortOfTarget
+        }
+    }
+
+    /// A conflict between Slurm's record and the workload's own report, when there is one.
+    public var completionDisagreement: CompletionDisagreement? {
+        guard let progress, progress.source.isAuthoritative, outcome.isFinished else { return nil }
+        switch (progress.completion, outcome) {
+        case (.failed, .succeeded):
+            return .reportedFailureButExitedClean
+        case (.completed, .failed):
+            return .reportedSuccessButJobFailed
+        case (.running, .succeeded), (.running, .failed), (.running, .cancelled):
+            // Only worth mentioning if the workload was actually mid-run: a reporter that
+            // reached its total and simply never wrote a final status has not lost anything.
+            guard let current = progress.current, let total = progress.total, total > 0,
+                  current < total - 1e-9
+            else { return nil }
+            return .endedWhileStillReporting
+        default:
+            return nil
+        }
+    }
+
+    /// Whether a determinate progress bar should be drawn for this job.
     public var showsProgressBar: Bool {
         guard progress?.fraction != nil else { return false }
-        return state != .completed
+        return progressDisposition.showsBar
+    }
+
+    /// The fraction to draw, which is 1.0 for a run known to have reached its target even when
+    /// its last counter reading was short.
+    public var displayedProgressFraction: Double? {
+        guard showsProgressBar, let fraction = progress?.fraction else { return nil }
+        return progressDisposition.barIsComplete ? 1.0 : fraction
+    }
+
+    /// A copy carrying a different progress reading. Used by ``ProgressCarryForward``.
+    public func replacingProgress(_ progress: JobProgress?) -> Job {
+        Job(
+            jobID: jobID, slurmJobID: slurmJobID, arrayJobID: arrayJobID, arrayTaskID: arrayTaskID,
+            name: name, user: user, account: account, partition: partition, qos: qos,
+            state: state, stateRaw: stateRaw, reason: reason,
+            submitTime: submitTime, startTime: startTime, endTime: endTime,
+            elapsedSeconds: elapsedSeconds, timeLimitSeconds: timeLimitSeconds,
+            nodes: nodes, nodeCount: nodeCount, cpus: cpus, gpus: gpus,
+            workDir: workDir, stdoutPath: stdoutPath, stderrPath: stderrPath,
+            exitCode: exitCode, signal: signal, source: source,
+            resources: resources, progress: progress
+        )
     }
 
     /// The node list, collapsed for display when a job spans many nodes.
@@ -386,6 +481,12 @@ public struct JobProgress: Codable, Hashable, Sendable {
     public let completion: ProgressCompletion?
     public let error: String?
     public let metrics: [String: MetricValue]
+    /// True when this reading was kept from an earlier poll rather than measured in this one.
+    ///
+    /// App-local: the agent never sends it. It rides along in the snapshot cache so a relaunch
+    /// does not lose the distinction, and it exists so nothing presents a remembered number as
+    /// a current one.
+    public let carriedForward: Bool
 
     enum CodingKeys: String, CodingKey {
         case source, confidence, kind, phase, current, total, unit, percent, message
@@ -394,6 +495,7 @@ public struct JobProgress: Codable, Hashable, Sendable {
         case stale
         case etaSeconds = "eta_seconds"
         case completion, error, metrics
+        case carriedForward = "carried_forward"
     }
 
     public init(from decoder: Decoder) throws {
@@ -414,6 +516,7 @@ public struct JobProgress: Codable, Hashable, Sendable {
         completion = try container.decodeIfPresent(ProgressCompletion.self, forKey: .completion)
         error = try container.decodeIfPresent(String.self, forKey: .error).map { SanitizedText.clean($0, limit: 500) }
         metrics = try container.decodeIfPresent([String: MetricValue].self, forKey: .metrics) ?? [:]
+        carriedForward = try container.decodeIfPresent(Bool.self, forKey: .carriedForward) ?? false
     }
 
     public init(
@@ -432,7 +535,8 @@ public struct JobProgress: Codable, Hashable, Sendable {
         etaSeconds: Int? = nil,
         completion: ProgressCompletion? = nil,
         error: String? = nil,
-        metrics: [String: MetricValue] = [:]
+        metrics: [String: MetricValue] = [:],
+        carriedForward: Bool = false
     ) {
         self.source = source
         self.confidence = confidence
@@ -450,6 +554,22 @@ public struct JobProgress: Codable, Hashable, Sendable {
         self.completion = completion
         self.error = error
         self.metrics = metrics
+        self.carriedForward = carriedForward
+    }
+
+    /// This reading, marked as remembered rather than measured.
+    ///
+    /// The ETA is dropped: it was extrapolated from a throughput that has since stopped, and
+    /// "3h remaining" on a job that already ended is the most confidently wrong thing the UI
+    /// could say.
+    public func asCarriedForward() -> JobProgress {
+        JobProgress(
+            source: source, confidence: confidence, kind: kind, phase: phase,
+            current: current, total: total, unit: unit, percent: percent, message: message,
+            updatedAt: updatedAt, startedAt: startedAt, stale: stale,
+            etaSeconds: nil, completion: completion, error: error, metrics: metrics,
+            carriedForward: true
+        )
     }
 
     /// Fraction in 0…1 for a determinate progress bar, or nil when the total is unknown.

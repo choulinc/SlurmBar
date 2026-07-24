@@ -385,47 +385,120 @@ final class LaunchAtLoginSettingTests: XCTestCase {
     }
 }
 
-/// A progress bar answers "how far along is this?". Once a job has finished successfully that
-/// question is settled, and a partial bar next to "Completed" reads as though it stopped short.
+/// Every surface has to agree about whether a job is finished and how it ended. These pin the
+/// reconciliation between Slurm's record and the workload's own report.
 final class ProgressBarVisibilityTests: XCTestCase {
-    private func job(state: JobState, current: Double?, total: Double?) -> Job {
+    private func job(
+        state: JobState,
+        current: Double?,
+        total: Double?,
+        completion: ProgressCompletion? = nil,
+        source: ProgressSource = .structuredFile
+    ) -> Job {
         Job(
             jobID: "1", name: "j", state: state,
             progress: current == nil ? nil : JobProgress(
-                source: .structuredFile, current: current, total: total,
+                source: source, current: current, total: total,
                 percent: (current != nil && total != nil && total! > 0)
-                    ? current! / total! * 100 : nil
+                    ? current! / total! * 100 : nil,
+                completion: completion
             )
         )
     }
 
-    func testCompletedJobShowsNoBarEvenWhenTheCounterFellShort() {
-        // The case that prompted this: exited cleanly at epoch 652 of 1000. Filling the bar
-        // would claim it reached 1000; leaving it at 65% reads as unfinished. Neither is right.
-        XCTAssertFalse(job(state: .completed, current: 652, total: 1000).showsProgressBar)
+    // MARK: - Outcome, the one classification
+
+    func testOutcomePartitionsEveryStateExactlyOnce() {
+        // No state may fall through into "succeeded" by accident, and none may land nowhere.
+        for state in JobState.allCases {
+            let outcome = Job(jobID: "1", name: "j", state: state).outcome
+            if state.isActive {
+                XCTAssertEqual(outcome, .active, "\(state)")
+            } else {
+                XCTAssertNotEqual(outcome, .active, "\(state)")
+                XCTAssertNotNil(outcome.finishedGroup, "\(state) must have a section")
+            }
+        }
     }
 
-    func testCompletedJobShowsNoBarEvenAtOneHundredPercent() {
-        // Consistency matters more than the one case where a full bar would be accurate.
-        XCTAssertFalse(job(state: .completed, current: 1000, total: 1000).showsProgressBar)
+    func testUnrecognizedFinishedStateIsNotTreatedAsSuccess() {
+        let job = Job(jobID: "1", name: "j", state: .unknown)
+        XCTAssertEqual(job.outcome, .indeterminate)
+        XCTAssertEqual(job.outcome.finishedGroup, .unsuccessful)
     }
 
-    func testRunningJobKeepsItsBar() {
-        XCTAssertTrue(job(state: .running, current: 652, total: 1000).showsProgressBar)
+    func testCancellationIsNeitherSuccessNorFailure() {
+        for state in [JobState.cancelled, .preempted] {
+            XCTAssertEqual(Job(jobID: "1", name: "j", state: state).outcome, .cancelled, "\(state)")
+        }
     }
 
-    func testFailuresKeepTheirBar() {
+    // MARK: - The bar
+
+    func testCompletedJobThatReachedItsTargetShowsAFullBar() {
+        let done = job(state: .completed, current: 1000, total: 1000)
+        XCTAssertEqual(done.progressDisposition, .reachedTarget)
+        XCTAssertEqual(done.displayedProgressFraction, 1.0)
+    }
+
+    func testCompletedJobWhoseCounterFellShortShowsNoBar() {
+        // Exited cleanly at epoch 652 of 1000. Filling the bar would claim it reached 1000;
+        // leaving it at 65% reads as unfinished. The counter text carries the fact instead.
+        let short = job(state: .completed, current: 652, total: 1000)
+        XCTAssertEqual(short.progressDisposition, .endedShortOfTarget)
+        XCTAssertFalse(short.showsProgressBar)
+        XCTAssertNil(short.displayedProgressFraction)
+    }
+
+    func testWorkloadDeclaringSuccessFillsTheBarEvenBelowTheTotal() {
+        // Early stopping: 284 of 300 epochs *is* a finished run, and only the workload can say
+        // so. That declaration outranks the counter.
+        let earlyStopped = job(state: .completed, current: 284, total: 300, completion: .completed)
+        XCTAssertEqual(earlyStopped.progressDisposition, .reachedTarget)
+        XCTAssertEqual(earlyStopped.displayedProgressFraction, 1.0)
+    }
+
+    func testRunningJobKeepsItsLiveBar() {
+        let running = job(state: .running, current: 652, total: 1000)
+        XCTAssertEqual(running.progressDisposition, .live)
+        XCTAssertEqual(running.displayedProgressFraction ?? 0, 0.652, accuracy: 1e-9)
+    }
+
+    func testFailuresKeepTheirBarAtWhereTheyStopped() {
         // "How far did it get before it died" is exactly the useful question here.
         for state in [JobState.failed, .outOfMemory, .timeout, .nodeFail] {
-            XCTAssertTrue(
-                job(state: state, current: 41, total: 400).showsProgressBar,
-                "\(state) should keep its bar"
-            )
+            let died = job(state: state, current: 41, total: 400)
+            XCTAssertEqual(died.progressDisposition, .stoppedAt, "\(state)")
+            XCTAssertEqual(died.displayedProgressFraction ?? 0, 0.1025, accuracy: 1e-9, "\(state)")
         }
     }
 
     func testCancelledKeepsItsBar() {
-        XCTAssertTrue(job(state: .cancelled, current: 120, total: 500).showsProgressBar)
+        XCTAssertEqual(job(state: .cancelled, current: 120, total: 500).progressDisposition, .stoppedAt)
+    }
+
+    func testWorkloadReportedFailureOverridesACleanExit() {
+        let lying = job(state: .completed, current: 40, total: 100, completion: .failed)
+        XCTAssertEqual(lying.progressDisposition, .stoppedAt)
+        XCTAssertEqual(lying.completionDisagreement, .reportedFailureButExitedClean)
+    }
+
+    func testWorkloadSucceededButSlurmFailedIsSurfaced() {
+        let teardown = job(state: .failed, current: 300, total: 300, completion: .completed)
+        XCTAssertEqual(teardown.completionDisagreement, .reportedSuccessButJobFailed)
+    }
+
+    func testJobKilledMidRunIsSurfaced() {
+        let killed = job(state: .cancelled, current: 120, total: 500, completion: .running)
+        XCTAssertEqual(killed.completionDisagreement, .endedWhileStillReporting)
+    }
+
+    func testLogParsedProgressNeverRaisesADisagreement() {
+        // A log parser infers numbers from text; it cannot declare an outcome, so contradicting
+        // it would mean contradicting a guess.
+        let parsed = job(state: .completed, current: 40, total: 100, completion: nil, source: .logParser)
+        XCTAssertNil(parsed.completionDisagreement)
+        XCTAssertEqual(parsed.progressDisposition, .endedShortOfTarget)
     }
 
     func testNoBarWithoutAKnownTotal() {
@@ -433,10 +506,12 @@ final class ProgressBarVisibilityTests: XCTestCase {
     }
 
     func testNoBarWithoutProgressAtAll() {
-        XCTAssertFalse(job(state: .running, current: nil, total: nil).showsProgressBar)
+        let bare = job(state: .running, current: nil, total: nil)
+        XCTAssertEqual(bare.progressDisposition, .none)
+        XCTAssertFalse(bare.showsProgressBar)
     }
 
-    func testTheCounterItselfIsStillAvailableForCompletedJobs() {
+    func testTheCounterItselfSurvivesWhenTheBarIsDropped() {
         // Dropping the bar must not drop the factual "652 / 1,000 epochs" text.
         let finished = Job(
             jobID: "1", name: "j", state: .completed,
@@ -444,5 +519,112 @@ final class ProgressBarVisibilityTests: XCTestCase {
         )
         XCTAssertFalse(finished.showsProgressBar)
         XCTAssertEqual(finished.progress?.counterDescription, "652 / 1,000 epochs")
+    }
+
+    // MARK: - Cross-surface agreement
+
+    func testSummaryAccountsForEveryJobInTheUnsuccessfulSection() {
+        // The bug this replaces: the section header counted cancellations, the strip did not,
+        // so the same list of jobs was reported as two different numbers.
+        let jobs = [
+            Job(jobID: "1", name: "a", state: .failed, endTime: Date()),
+            Job(jobID: "2", name: "b", state: .cancelled, endTime: Date()),
+            Job(jobID: "3", name: "c", state: .preempted, endTime: Date()),
+            Job(jobID: "4", name: "d", state: .unknown, endTime: Date()),
+            Job(jobID: "5", name: "e", state: .completed, endTime: Date()),
+        ]
+        let groups = JobGrouper.group(jobs: jobs, recentHours: 24)
+        XCTAssertEqual(groups.unsuccessful.count, 4)
+        XCTAssertEqual(groups.summary.unsuccessfulRecently, groups.unsuccessful.count)
+        XCTAssertEqual(groups.summary.completedRecently, groups.completed.count)
+        XCTAssertEqual(groups.summary.cancelledRecently, 2)
+        // The unclassifiable one counts as failed, not cancelled: nobody chose to stop it.
+        XCTAssertEqual(groups.summary.failedRecently, 2)
+    }
+
+    // MARK: - Carrying the last reading past the finish line
+
+    private func snapshot(_ jobs: [Job]) -> Snapshot {
+        Snapshot(
+            schemaVersion: 1, generatedAt: Date(),
+            cluster: ClusterInfo(name: nil, hostname: nil, slurmVersion: nil),
+            summary: .empty, jobs: jobs
+        )
+    }
+
+    func testLastReadingSurvivesTheJobLeavingTheQueue() {
+        // sacct has no StdOut field, so the agent loses the log path — and with it any chance
+        // of a reading — the moment squeue stops listing the job.
+        let running = job(state: .running, current: 5640, total: 9400, source: .logParser)
+        let finishedWithNothing = Job(jobID: "1", name: "j", state: .failed)
+
+        let merged = ProgressCarryForward.apply(
+            previous: snapshot([running]), to: snapshot([finishedWithNothing])
+        )
+        let result = merged.jobs[0]
+        XCTAssertEqual(result.progress?.current, 5640)
+        XCTAssertTrue(result.progress?.carriedForward == true)
+        XCTAssertEqual(result.progressDisposition, .stoppedAt)
+    }
+
+    func testCarriedReadingDropsItsETA() {
+        // Extrapolated from a throughput that has since stopped.
+        let running = Job(
+            jobID: "1", name: "j", state: .running,
+            progress: JobProgress(source: .logParser, current: 50, total: 100, etaSeconds: 3600)
+        )
+        let merged = ProgressCarryForward.apply(
+            previous: snapshot([running]), to: snapshot([Job(jobID: "1", name: "j", state: .completed)])
+        )
+        XCTAssertNil(merged.jobs[0].progress?.etaSeconds)
+    }
+
+    func testAFreshReadingIsNeverOverwrittenByAnOlderOne() {
+        let running = job(state: .running, current: 10, total: 100)
+        let finishedWithItsOwn = job(state: .completed, current: 100, total: 100)
+        let merged = ProgressCarryForward.apply(
+            previous: snapshot([running]), to: snapshot([finishedWithItsOwn])
+        )
+        XCTAssertEqual(merged.jobs[0].progress?.current, 100)
+        XCTAssertFalse(merged.jobs[0].progress?.carriedForward == true)
+    }
+
+    func testNothingIsCarriedOntoAJobThatIsStillRunning() {
+        // A running job with no reading this poll means the log stopped being parseable, not
+        // that the old number is still true.
+        let previous = job(state: .running, current: 10, total: 100)
+        let stillRunning = Job(jobID: "1", name: "j", state: .running)
+        let merged = ProgressCarryForward.apply(
+            previous: snapshot([previous]), to: snapshot([stillRunning])
+        )
+        XCTAssertNil(merged.jobs[0].progress)
+    }
+
+    func testCarryForwardSurvivesTheSnapshotCacheRoundTrip() throws {
+        let carried = job(state: .completed, current: 284, total: 300).replacingProgress(
+            JobProgress(source: .logParser, current: 284, total: 300).asCarriedForward()
+        )
+        let data = try JSONEncoder().encode(snapshot([carried]))
+        let decoded = try JSONDecoder().decode(Snapshot.self, from: data)
+        XCTAssertTrue(decoded.jobs[0].progress?.carriedForward == true)
+    }
+
+    func testAgentPayloadsHaveNoCarriedFlag() {
+        // The field is app-local. An agent that never heard of it must decode as "measured".
+        let json = #"{"source":"log_parser","current":5,"total":10,"stale":false,"metrics":{}}"#
+        let progress = try? JSONDecoder().decode(JobProgress.self, from: Data(json.utf8))
+        XCTAssertFalse(progress?.carriedForward == true)
+    }
+
+    func testMenuBarStopsReportingAPinnedJobOnceItFinishes() {
+        // A pinned job that ended at 63% used to keep showing "63%" forever, contradicting a
+        // popover that had already filed it under a finished section.
+        let finished = job(state: .completed, current: 63, total: 100)
+        let snapshot = Snapshot(
+            schemaVersion: 1, generatedAt: Date(),
+            cluster: ClusterInfo(name: nil, hostname: nil, slurmVersion: nil),
+            summary: .empty, jobs: [finished]
+        )
+        XCTAssertNil(MenuBarLabelBuilder.pinnedPercentText(snapshot: snapshot, pinnedJobID: "1"))
     }
 }

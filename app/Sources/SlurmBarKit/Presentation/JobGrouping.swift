@@ -131,11 +131,21 @@ public struct GroupedJobs: Hashable, Sendable {
         for job in self.running {
             if job.state == .completing { completing += 1 } else { running += 1 }
         }
+        // Every unsuccessful job lands in exactly one of the two counts, so the section header
+        // and the summary strip can never disagree about how many jobs are in that section.
+        var failed = 0
+        var cancelled = 0
+        for job in unsuccessful {
+            // `indeterminate` is counted as failed rather than cancelled: an unclassifiable
+            // finished state is not evidence that somebody stopped it on purpose.
+            if job.outcome == .cancelled { cancelled += 1 } else { failed += 1 }
+        }
         return JobSummary(
             running: running,
             pending: pending.count,
             completing: completing,
-            failedRecently: unsuccessful.filter { $0.state.isFailure }.count,
+            failedRecently: failed,
+            cancelledRecently: cancelled,
             completedRecently: self.completed.count
         )
     }
@@ -181,7 +191,11 @@ public enum JobGrouper {
                 // hidden, because that is the thing the user most needs to see.
                 if let endTime = job.endTime, endTime < cutoff { continue }
                 if filter.hides(job) { continue }
-                if job.state == .completed { completed.append(job) } else { unsuccessful.append(job) }
+                if job.outcome.finishedGroup == .completed {
+                    completed.append(job)
+                } else {
+                    unsuccessful.append(job)
+                }
             }
         }
 

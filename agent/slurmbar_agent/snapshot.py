@@ -25,9 +25,11 @@ from .logparse import parse_log_lines
 from .protocol import (
     AGENT_VERSION,
     SCHEMA_VERSION,
+    STATE_CANCELLED,
     STATE_COMPLETED,
     STATE_COMPLETING,
     STATE_PENDING,
+    STATE_PREEMPTED,
     STATE_RUNNING,
     STATE_SUSPENDED,
     FAILURE_STATES,
@@ -41,6 +43,10 @@ from .validate import is_valid_job_id
 #: How many running jobs may have their logs sniffed for progress in one refresh. Bounded so a
 #: user with 200 running jobs does not trigger 200 filesystem reads per poll.
 MAX_LOG_FALLBACK_JOBS = 12
+#: The same, for jobs that have already finished. Much smaller: a day of history routinely holds
+#: a hundred-plus jobs, their logs never change again, and only the newest few are being looked
+#: at. This is a fixed per-poll cost, not one that grows with how long the history window is.
+MAX_FINISHED_LOG_FALLBACK_JOBS = 6
 LOG_FALLBACK_WINDOW_BYTES = 64 * 1024
 LOG_FALLBACK_LINES = 120
 
@@ -189,12 +195,39 @@ def _fill_missing(live: Dict[str, Any], historical: Dict[str, Any]) -> None:
 
 
 def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) -> None:
-    """Sniff the tail of the log for running jobs that have no structured progress."""
+    """Sniff the tail of the log for jobs that have no structured progress.
+
+    Two groups are read, under separate budgets:
+
+    * jobs still on the cluster (``RUNNING`` or ``COMPLETING``) — the live bar. ``COMPLETING``
+      is included because a job that spends a minute in that state used to have its progress
+      bar blink out while still displayed under "Running";
+    * the most recently finished jobs — so "stopped at epoch 812/1000" survives the moment the
+      job leaves the queue. Without this, log-derived progress is discarded exactly when the
+      question "how far did it get?" starts to matter, and the answer is only ever available to
+      workloads that use the ``slurmbar_progress`` SDK.
+
+    The finished group is capped tightly and sorted newest-first: a day of accounting history
+    can hold hundreds of jobs, and reading every one of their logs on every poll is not a
+    trade worth making for output nobody is looking at.
+    """
+    live_states = (STATE_RUNNING, STATE_COMPLETING)
     candidates = [
         job
         for job in jobs
-        if job["state"] == STATE_RUNNING and job.get("progress") is None and job.get("stdout_path")
+        if job["state"] in live_states and job.get("progress") is None and job.get("stdout_path")
     ]
+    finished = [
+        job
+        for job in jobs
+        if job["state"] not in live_states
+        and job["state"] != STATE_PENDING
+        and job.get("progress") is None
+        and job.get("stdout_path")
+    ]
+    finished.sort(key=lambda job: job.get("end_time") or "", reverse=True)
+    candidates = candidates[:MAX_LOG_FALLBACK_JOBS] + finished[:MAX_FINISHED_LOG_FALLBACK_JOBS]
+
     missing_path = [
         job for job in jobs if job["state"] == STATE_RUNNING and job.get("progress") is None and not job.get("stdout_path")
     ]
@@ -209,7 +242,7 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
             ),
         )
 
-    for job in candidates[:MAX_LOG_FALLBACK_JOBS]:
+    for job in candidates:
         tail = logtail.read_tail(
             job["stdout_path"],
             max_lines=LOG_FALLBACK_LINES,
@@ -246,6 +279,7 @@ def _summarize(jobs: Sequence[Dict[str, Any]]) -> Dict[str, int]:
         "pending": 0,
         "completing": 0,
         "failed_recently": 0,
+        "cancelled_recently": 0,
         "completed_recently": 0,
     }
     for job in jobs:
@@ -260,6 +294,11 @@ def _summarize(jobs: Sequence[Dict[str, Any]]) -> Dict[str, int]:
             summary["completed_recently"] += 1
         elif state in FAILURE_STATES:
             summary["failed_recently"] += 1
+        elif state in (STATE_CANCELLED, STATE_PREEMPTED):
+            # Counted separately rather than not at all. A cancelled job is neither a success
+            # nor a failure, and leaving it out of every bucket made the totals understate the
+            # history the app was displaying.
+            summary["cancelled_recently"] += 1
     return summary
 
 

@@ -2,12 +2,17 @@
   "schema_version": 1,
   "generated_at": "2026-07-22T02:30:00Z",
   "agent_version": "0.1.0",
-  "cluster": { "name": null, "hostname": "login01.example.org", "slurm_version": null },
+  "cluster": {
+    "name": null,
+    "hostname": "login01.example.org",
+    "slurm_version": null
+  },
   "summary": {
     "running": 1,
     "pending": 0,
     "completing": 0,
     "failed_recently": 0,
+    "cancelled_recently": 0,
     "completed_recently": 0
   },
   "jobs": [
@@ -28,7 +33,9 @@
       "end_time": null,
       "elapsed_seconds": 8700,
       "time_limit_seconds": null,
-      "nodes": ["example-cpu-011"],
+      "nodes": [
+        "example-cpu-011"
+      ],
       "node_count": 1,
       "cpus": 4,
       "gpus": null,

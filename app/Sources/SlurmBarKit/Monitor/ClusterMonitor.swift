@@ -298,8 +298,11 @@ public final class ClusterMonitor: ObservableObject {
         }
     }
 
-    private func handleSuccess(_ fetched: Snapshot) async {
+    private func handleSuccess(_ rawFetched: Snapshot) async {
         let timestamp = now()
+        // A job that just left the queue takes its log path with it, and with it the agent's
+        // only route to a progress reading. Keep the one from the last poll it was alive for.
+        let fetched = ProgressCarryForward.apply(previous: snapshot, to: rawFetched)
         snapshot = fetched
         lastSuccessfulFetch = timestamp
         isStaleFromCache = false
@@ -307,6 +310,7 @@ public final class ClusterMonitor: ObservableObject {
         didNotifyConnectionLoss = false
         hadLiveSuccess = true
         connection = .connected(at: timestamp)
+        // Cached with the carried readings, so a relaunch does not lose them either.
         cache.store(fetched, clusterID: profile.id, fetchedAt: timestamp)
 
         let events = detector.process(snapshot: fetched, now: timestamp)

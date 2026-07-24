@@ -115,6 +115,33 @@ jobs = [
                       completion="completed", message="Example run completed",
                       updated_at=ago(hours=2, minutes=10), metrics={"loss": 0.1111})),
 
+    # Early stopping. The counter never reaches 300, and only the workload's own
+    # completion="completed" makes this a finished run rather than a truncated one. Slurm sees
+    # exit 0 either way. The bar fills because the workload said the work was done.
+    job(job_id="10033", name="demo-early-stop", state="COMPLETED", partition="accelerated",
+        submit_time=ago(hours=14), start_time=ago(hours=13, minutes=50),
+        end_time=ago(hours=4), elapsed_seconds=secs(hours=9, minutes=50),
+        time_limit_seconds=secs(hours=24), nodes=["demo-accelerator-02"], cpus=8, gpus=1,
+        exit_code=0, signal=0, source="sacct",
+        resources=res(9 * GiB, 32 * GiB, "peak_rss_per_step", "requested_total"),
+        progress=prog(kind="training", current=284, total=300, unit="epoch",
+                      percent=94.6667, completion="completed",
+                      message="Early stopping: no improvement in 20 epochs",
+                      updated_at=ago(hours=4), metrics={"loss": 0.0412, "val_loss": 0.0533})),
+
+    # The ambiguous one, and the reason the bar is dropped rather than filled: a clean exit
+    # with the counter short of the total. Indistinguishable from a run whose final progress
+    # update was never written.
+    job(job_id="10034", name="demo-short-counter", state="COMPLETED", partition="accelerated",
+        submit_time=ago(hours=8), start_time=ago(hours=7, minutes=52),
+        end_time=ago(hours=1, minutes=5), elapsed_seconds=secs(hours=6, minutes=47),
+        time_limit_seconds=secs(hours=12), nodes=["demo-accelerator-05"], cpus=8, gpus=1,
+        exit_code=0, signal=0, source="sacct",
+        resources=res(7 * GiB, 32 * GiB, "peak_rss_per_step", "requested_total"),
+        progress=prog(source="log_parser", kind=None, current=652, total=1000, unit="epoch",
+                      percent=65.2, completion=None, updated_at=ago(hours=1, minutes=5),
+                      carried_forward=True, metrics={"loss": 0.2087})),
+
     job(job_id="10031", name="demo-memory-test", state="OUT_OF_MEMORY", partition="accelerated",
         submit_time=ago(hours=6), start_time=ago(hours=5, minutes=50),
         end_time=ago(hours=5, minutes=12), elapsed_seconds=secs(minutes=38),
@@ -135,11 +162,13 @@ jobs = [
 snapshot = {
     "schema_version": 1,
     "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "agent_version": "0.2.1",
+    "agent_version": "0.2.2",
     "cluster": {"name": "demo-cluster", "hostname": "login.demo.invalid",
                 "slurm_version": "slurm 24.05.0-demo"},
+    # Must match what the jobs above actually are: the app recomputes these from the visible
+    # list, so a demo payload that disagrees would render inconsistently on purpose.
     "summary": {"running": 4, "pending": 2, "completing": 0,
-                "failed_recently": 1, "completed_recently": 1},
+                "failed_recently": 1, "cancelled_recently": 1, "completed_recently": 3},
     "jobs": jobs,
     "warnings": [],
 }

@@ -384,9 +384,12 @@ private struct SummaryStrip: View {
             SummaryCell(value: summary.running, label: "Running", symbol: "play.circle")
             SummaryCell(value: summary.pending, label: "Pending", symbol: "clock")
             SummaryCell(value: summary.completedRecently, label: "Completed", symbol: "checkmark.circle")
+            // Counts the whole "Failed & cancelled" section, not just the failures in it.
+            // Showing only failures left cancellations counted in no cell at all, so the
+            // section header and the strip disagreed about the same list of jobs.
             SummaryCell(
-                value: summary.failedRecently,
-                label: "Failed",
+                value: summary.unsuccessfulRecently,
+                label: "Unsuccessful",
                 symbol: "exclamationmark.triangle",
                 emphasized: summary.failedRecently > 0
             )

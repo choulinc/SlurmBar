@@ -56,6 +56,20 @@ class TestSnapshotShape:
         assert summary["completed_recently"] == 1
         assert summary["failed_recently"] == 3  # FAILED, TIMEOUT, OUT_OF_MEMORY
         assert summary["completing"] == 0
+        assert "cancelled_recently" in summary
+
+    def test_every_finished_job_lands_in_exactly_one_summary_bucket(self, snapshot):
+        # The app draws one number per bucket next to a list of the same jobs. A state counted
+        # in no bucket makes the two disagree, which is how cancellations went missing.
+        summary = snapshot["summary"]
+        active = {"RUNNING", "PENDING", "COMPLETING", "SUSPENDED", "REQUEUED"}
+        finished = [j for j in snapshot["jobs"] if j["state"] not in active]
+        counted = (
+            summary["completed_recently"]
+            + summary["failed_recently"]
+            + summary["cancelled_recently"]
+        )
+        assert counted == len(finished), [j["state"] for j in finished]
 
     def test_is_json_serializable(self, snapshot):
         json.dumps(snapshot)
@@ -211,6 +225,31 @@ class TestProgressIntegration:
         assert job["progress"]["source"] == "log_parser"
         assert job["progress"]["confidence"] == "medium"
         assert job["progress"]["percent"] == 42.0
+
+    def test_log_fallback_covers_completing_jobs(self, tmp_path: Path):
+        # A job can sit in COMPLETING for a while. It is displayed under "Running", so having
+        # its bar vanish on the poll it enters that state looked like the progress broke.
+        log = tmp_path / "slurm-201551.out"
+        log.write_text("Epoch 42/100 loss=0.51\n")
+
+        payload = json.loads(read_fixture("squeue", "squeue-json-2311.json"))
+        payload["jobs"][0]["standard_output"] = str(log)
+        payload["jobs"][0]["job_state"] = ["COMPLETING"]
+        runner = full_runner()
+        runner.stub("squeue --json", json.dumps(payload))
+
+        snapshot = build_snapshot(runner, user="exampleuser", progress_dir=str(tmp_path / "empty"))
+        job = next(j for j in snapshot["jobs"] if j["job_id"] == "201551")
+        assert job["state"] == "COMPLETING"
+        assert job["progress"]["percent"] == 42.0
+
+    def test_finished_log_reads_are_capped_independently_of_history_size(self, tmp_path: Path):
+        from slurmbar_agent import snapshot as snapshot_mod
+
+        assert snapshot_mod.MAX_FINISHED_LOG_FALLBACK_JOBS <= snapshot_mod.MAX_LOG_FALLBACK_JOBS
+        # A 24-hour window routinely holds a hundred-plus finished jobs; the per-poll cost of
+        # looking at them must not scale with that.
+        assert snapshot_mod.MAX_FINISHED_LOG_FALLBACK_JOBS <= 8
 
     def test_log_fallback_can_be_disabled(self, tmp_path: Path):
         log = tmp_path / "slurm-201551.out"
