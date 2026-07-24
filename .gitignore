@@ -52,3 +52,6 @@ live-*.json
 # Demo data and screenshots for documentation (generated locally, never committed)
 demo/snapshot.json
 demo/screenshots/
+
+# An unrelated repository that was cloned into this working tree.
+physicsnemo-persistent-routing/
