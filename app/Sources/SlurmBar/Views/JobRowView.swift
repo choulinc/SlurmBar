@@ -9,13 +9,16 @@ import SwiftUI
 /// than rendered as a zero.
 struct JobRowView: View {
     let job: Job
-    let group: JobGroup
+
+    /// Derived from the job, never from the section it was placed in. A row that draws itself
+    /// as live while sitting under "Completed" is the failure mode this prevents.
+    private var layout: JobGroup { job.displayGroup }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             titleLine
 
-            switch group {
+            switch layout {
             case .running:
                 runningDetails
             case .pending:
@@ -340,48 +343,48 @@ private struct MetadataLine: View {
 
 #if DEBUG
 #Preview("Running with structured progress") {
-    JobRowView(job: PreviewData.runningTrainingJob, group: .running)
+    JobRowView(job: PreviewData.runningTrainingJob)
         .frame(width: PopoverRootView.width)
         .padding(.vertical)
 }
 
 #Preview("Running with unknown total") {
-    JobRowView(job: PreviewData.runningCounterJob, group: .running)
+    JobRowView(job: PreviewData.runningCounterJob)
         .frame(width: PopoverRootView.width)
         .padding(.vertical)
 }
 
 #Preview("Running with parsed progress") {
-    JobRowView(job: PreviewData.runningParsedJob, group: .running)
+    JobRowView(job: PreviewData.runningParsedJob)
         .frame(width: PopoverRootView.width)
         .padding(.vertical)
 }
 
 #Preview("Stale progress") {
-    JobRowView(job: PreviewData.staleProgressJob, group: .running)
+    JobRowView(job: PreviewData.staleProgressJob)
         .frame(width: PopoverRootView.width)
         .padding(.vertical)
 }
 
 #Preview("Pending") {
     VStack(spacing: 0) {
-        JobRowView(job: PreviewData.pendingJob, group: .pending)
-        JobRowView(job: PreviewData.pendingQOSJob, group: .pending)
+        JobRowView(job: PreviewData.pendingJob)
+        JobRowView(job: PreviewData.pendingQOSJob)
     }
     .frame(width: PopoverRootView.width)
     .padding(.vertical)
 }
 
 #Preview("Completed") {
-    JobRowView(job: PreviewData.completedJob, group: .completed)
+    JobRowView(job: PreviewData.completedJob)
         .frame(width: PopoverRootView.width)
         .padding(.vertical)
 }
 
 #Preview("Failed & cancelled") {
     VStack(spacing: 0) {
-        JobRowView(job: PreviewData.outOfMemoryJob, group: .unsuccessful)
-        JobRowView(job: PreviewData.failedJob, group: .unsuccessful)
+        JobRowView(job: PreviewData.outOfMemoryJob)
+        JobRowView(job: PreviewData.failedJob)
     }
     .frame(width: PopoverRootView.width)
     .padding(.vertical)

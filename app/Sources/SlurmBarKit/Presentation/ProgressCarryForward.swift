@@ -22,11 +22,15 @@ public enum ProgressCarryForward {
     public static func apply(previous: Snapshot?, to fetched: Snapshot) -> Snapshot {
         guard let previous else { return fetched }
 
-        // Only jobs that were still going have a reading worth keeping. A finished job's
-        // carried reading is already carried; re-carrying it is harmless but pointless, and
-        // this way the chain is always at most one hop from a live observation.
+        // Every reading the previous snapshot held, including ones that were themselves carried.
+        //
+        // Harvesting only from *active* jobs looks tidier — the chain stays one hop from a live
+        // observation — but it means a carried reading survives exactly one poll and then
+        // vanishes, because by the next poll the job it came from is finished and no longer a
+        // source. The job stays in the list for the whole history window; its reading has to
+        // stay with it.
         var carriable: [String: JobProgress] = [:]
-        for job in previous.jobs where !job.outcome.isFinished {
+        for job in previous.jobs {
             if let progress = job.progress { carriable[job.jobID] = progress }
         }
         guard !carriable.isEmpty else { return fetched }

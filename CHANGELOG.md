@@ -2,6 +2,18 @@
 
 Notable changes per release. Dates are the release date, not the last commit.
 
+## 0.2.3 — 2026-07-24
+
+- **Rows drawn as live jobs under a "Completed" header.** A row's layout came from whichever
+  section value it was handed, which was a second derivation from the one `JobGrouper` used to
+  file it. When a job finished between polls the two disagreed and the row kept its live
+  presentation — blue bar, elapsed-versus-limit, live memory — under the completed header.
+  Both now come from `Job.displayGroup`, and section identity is scoped so that a job moving
+  sections cannot be mistaken by `LazyVStack` for the same row having moved.
+- **A carried progress reading vanished one poll after it was carried.** Readings were
+  harvested only from jobs that were still active, so by the next poll the finished job holding
+  a carried reading was no longer a source for itself.
+
 ## 0.2.2 — 2026-07-24
 
 One question — "is this job finished, and how did it end?" — was being answered independently

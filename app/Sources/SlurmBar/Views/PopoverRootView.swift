@@ -434,7 +434,13 @@ private struct JobSectionsView: View {
             if !jobs.isEmpty {
                 SectionHeader(title: group.title, count: jobs.count)
                 ForEach(jobs) { job in
-                    JobRowView(job: job, group: group)
+                    JobRowView(job: job)
+                        // Identity is scoped to the section. A job that finishes moves between
+                        // two ForEach bodies with its id unchanged, and inside a LazyVStack
+                        // that reads as "the same row moved" — leaving the previously rendered
+                        // body in place under the new header. Making it a different view forces
+                        // a fresh one.
+                        .id("\(group.rawValue)#\(job.jobID)")
                         .contentShape(Rectangle())
                         .onTapGesture { onSelect(job) }
                         .contextMenu { JobRowContextMenu(job: job) }

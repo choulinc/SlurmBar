@@ -181,17 +181,17 @@ public enum JobGrouper {
         let cutoff = now.addingTimeInterval(-TimeInterval(max(0, filter.recentHours) * 3600))
 
         for job in jobs {
-            switch job.state {
-            case .running, .completing, .suspended:
+            switch job.displayGroup {
+            case .running:
                 running.append(job)
-            case .pending, .requeued:
+            case .pending:
                 pending.append(job)
-            default:
+            case .completed, .unsuccessful:
                 // Age and hide rules apply only to finished jobs: an active job is never
                 // hidden, because that is the thing the user most needs to see.
                 if let endTime = job.endTime, endTime < cutoff { continue }
                 if filter.hides(job) { continue }
-                if job.outcome.finishedGroup == .completed {
+                if job.displayGroup == .completed {
                     completed.append(job)
                 } else {
                     unsuccessful.append(job)

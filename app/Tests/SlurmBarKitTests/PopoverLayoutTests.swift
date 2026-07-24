@@ -542,6 +542,27 @@ final class ProgressBarVisibilityTests: XCTestCase {
         XCTAssertEqual(groups.summary.failedRecently, 2)
     }
 
+    // MARK: - A row's layout and its section are the same decision
+
+    func testEveryJobLandsInTheSectionItsRowIsDrawnFor() {
+        // The observed failure: rows drawn as live jobs — blue bar, elapsed-versus-limit, live
+        // memory — under a "Completed 115" header. The section came from JobGrouper, the
+        // layout came from whatever section value the row had been handed, and the two drifted.
+        for state in JobState.allCases {
+            let job = Job(jobID: "1", name: "j", state: state, endTime: Date())
+            let groups = JobGrouper.group(jobs: [job], recentHours: 24)
+            let section = JobGroup.allCases.first { !groups.jobs(in: $0).isEmpty }
+            XCTAssertEqual(section, job.displayGroup, "\(state) is filed and drawn differently")
+        }
+    }
+
+    func testAFinishedJobIsNeverDrawnAsALiveOne() {
+        for state in JobState.allCases where !state.isActive {
+            let group = Job(jobID: "1", name: "j", state: state).displayGroup
+            XCTAssertTrue(group.isFinished, "\(state) would render with the live layout")
+        }
+    }
+
     // MARK: - Carrying the last reading past the finish line
 
     private func snapshot(_ jobs: [Job]) -> Snapshot {
@@ -577,6 +598,20 @@ final class ProgressBarVisibilityTests: XCTestCase {
             previous: snapshot([running]), to: snapshot([Job(jobID: "1", name: "j", state: .completed)])
         )
         XCTAssertNil(merged.jobs[0].progress?.etaSeconds)
+    }
+
+    func testACarriedReadingSurvivesMoreThanOnePoll() {
+        // Harvesting only from active jobs meant a carried reading lasted exactly one poll:
+        // by the next one its source job was finished and no longer a source at all.
+        let running = job(state: .running, current: 5640, total: 9400, source: .logParser)
+        let finished = Job(jobID: "1", name: "j", state: .completed)
+
+        var current = snapshot([running])
+        for poll in 1...5 {
+            current = ProgressCarryForward.apply(previous: current, to: snapshot([finished]))
+            XCTAssertEqual(current.jobs[0].progress?.current, 5640, "lost at poll \(poll)")
+            XCTAssertTrue(current.jobs[0].progress?.carriedForward == true, "poll \(poll)")
+        }
     }
 
     func testAFreshReadingIsNeverOverwrittenByAnOlderOne() {

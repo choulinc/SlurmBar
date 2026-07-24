@@ -299,6 +299,21 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
         return .indeterminate
     }
 
+    /// The section this job belongs to — and, because a row is laid out for its section, the
+    /// layout its row gets.
+    ///
+    /// Both used to be worked out separately: `JobGrouper` bucketed by state, and the row
+    /// switched on whichever section value it had been hAnded. When those two drifted apart the
+    /// result was a row drawn as a live job — blue bar, elapsed-versus-limit, live memory —
+    /// sitting underneath a "Completed" header. Deriving both from here makes that
+    /// unrepresentable.
+    public var displayGroup: JobGroup {
+        if state.isActive {
+            return (state == .pending || state == .requeued) ? .pending : .running
+        }
+        return outcome.finishedGroup ?? .unsuccessful
+    }
+
     /// What to do with this job's progress reading.
     ///
     /// Reconciles two witnesses that answer different questions: Slurm knows how the process
