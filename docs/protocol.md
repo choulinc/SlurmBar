@@ -18,7 +18,7 @@ Current version: **`schema_version: 1`**.
 | `slurmbar-agent paths --json` | diagnostic | Manual |
 
 Optional flags on `snapshot`: `--user`, `--history-hours`, `--progress-dir`,
-`--progress-stale-seconds`, `--no-log-fallback`, `--no-sstat`.
+`--progress-stale-seconds`, `--no-log-fallback`, `--log-fallback-limit`, `--no-sstat`.
 
 ## Conventions
 
@@ -116,6 +116,7 @@ about.
 | `PROGRESS_FILE_INVALID` / `PROGRESS_SCHEMA_UNSUPPORTED` | warning | That job's progress ignored. |
 | `PROGRESS_STALE` | info | Workload stopped updating. |
 | `LOG_PATH_UNKNOWN` / `LOG_UNREADABLE` | info | No log tail for that job. |
+| `LOG_PROGRESS_BUDGET_EXCEEDED` | info | More running jobs than the per-refresh log-read budget; the newest were read. Raise with `--log-fallback-limit`. |
 | `COMMAND_TIMEOUT` / `COMMAND_FAILED` | warning/error | A Slurm command didn't complete. |
 | `PARTIAL_DATA` | warning | Some records were skipped. |
 

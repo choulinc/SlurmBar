@@ -298,6 +298,77 @@ class TestProgressIntegration:
         assert job["progress"]["current"] == 812
 
 
+class TestLogFallbackBudget:
+    """Which running jobs get a log read when there are more of them than the budget allows."""
+
+    def _running(self, job_id: str, path: str, started: str) -> dict:
+        return {
+            "job_id": job_id, "state": "RUNNING", "progress": None,
+            "stdout_path": path, "stderr_path": None,
+            "start_time": started, "end_time": None,
+        }
+
+    def _queue(self, fixtures_dir: Path, count: int) -> list:
+        path = str(fixtures_dir / "logs" / "training-epochs.log")
+        # Job 1 started first; job `count` most recently.
+        return [
+            self._running(str(n), path, f"2026-07-22T{n:02d}:00:00Z")
+            for n in range(1, count + 1)
+        ]
+
+    def _apply(self, jobs, **kwargs) -> list:
+        warnings = WarningCollector()
+        snapshot_mod._apply_log_fallback(jobs, warnings, **kwargs)
+        return warnings.to_json()
+
+    def test_jobs_past_the_budget_are_reported_rather_than_silently_skipped(self, fixtures_dir: Path):
+        jobs = self._queue(fixtures_dir, 13)
+        warnings = self._apply(jobs)
+
+        with_progress = {job["job_id"] for job in jobs if job["progress"]}
+        assert len(with_progress) == snapshot_mod.MAX_LOG_FALLBACK_JOBS
+        budget = next(w for w in warnings if w["code"] == "LOG_PROGRESS_BUDGET_EXCEEDED")
+        assert "1 running job" in budget["message"]
+        assert budget["severity"] == "info"
+
+    def test_the_newest_running_jobs_are_the_ones_that_get_read(self, fixtures_dir: Path):
+        jobs = self._queue(fixtures_dir, 13)
+        self._apply(jobs)
+        assert jobs[0]["progress"] is None  # started first, and so wanted least
+        assert all(job["progress"] is not None for job in jobs[1:])
+
+    def test_selection_does_not_depend_on_the_order_squeue_returned(self, fixtures_dir: Path):
+        forwards = self._queue(fixtures_dir, 13)
+        backwards = list(reversed(self._queue(fixtures_dir, 13)))
+        self._apply(forwards)
+        self._apply(backwards)
+        assert {j["job_id"] for j in forwards if j["progress"]} == {
+            j["job_id"] for j in backwards if j["progress"]
+        }
+
+    def test_the_budget_is_configurable(self, fixtures_dir: Path):
+        jobs = self._queue(fixtures_dir, 13)
+        warnings = self._apply(jobs, limit=13)
+        assert all(job["progress"] is not None for job in jobs)
+        assert [w for w in warnings if w["code"] == "LOG_PROGRESS_BUDGET_EXCEEDED"] == []
+
+        jobs = self._queue(fixtures_dir, 13)
+        warnings = self._apply(jobs, limit=0)
+        assert all(job["progress"] is None for job in jobs)
+        assert "13 running job" in warnings[0]["message"]
+
+    def test_reads_stay_bounded_by_the_budget(self, fixtures_dir: Path, monkeypatch):
+        reads: list = []
+        real_read_tail = snapshot_mod.logtail.read_tail
+        monkeypatch.setattr(
+            snapshot_mod.logtail,
+            "read_tail",
+            lambda target, **kwargs: (reads.append(target), real_read_tail(target, **kwargs))[1],
+        )
+        self._apply(self._queue(fixtures_dir, 40))
+        assert len(reads) == snapshot_mod.MAX_LOG_FALLBACK_JOBS
+
+
 class TestLogFallbackStreams:
     """Which of a job's two output streams the log fallback reads, and in what order."""
 

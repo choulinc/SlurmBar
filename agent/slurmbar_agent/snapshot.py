@@ -77,6 +77,7 @@ def build_snapshot(
     progress_dir: Optional[str] = None,
     stale_seconds: int = progress_mod.DEFAULT_STALE_SECONDS,
     enable_log_fallback: bool = True,
+    log_fallback_limit: int = MAX_LOG_FALLBACK_JOBS,
     enable_sstat: bool = True,
     timeout: float = 15.0,
 ) -> Dict[str, Any]:
@@ -128,7 +129,7 @@ def build_snapshot(
             job["progress"] = found
 
     if enable_log_fallback:
-        _apply_log_fallback(jobs, warnings)
+        _apply_log_fallback(jobs, warnings, limit=log_fallback_limit)
 
     summary = _summarize(jobs)
     cluster = _cluster_info(runner)
@@ -199,7 +200,11 @@ def _fill_missing(live: Dict[str, Any], historical: Dict[str, Any]) -> None:
             live_res[key] = hist_res[key]
 
 
-def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) -> None:
+def _apply_log_fallback(
+    jobs: List[Dict[str, Any]],
+    warnings: WarningCollector,
+    limit: int = MAX_LOG_FALLBACK_JOBS,
+) -> None:
     """Sniff the tail of the log for jobs that have no structured progress.
 
     Two groups are read, under separate budgets:
@@ -219,13 +224,36 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
     Both reported streams are inspected, not just stdout. tqdm — the most widely deployed
     progress bar in the ecosystem this tool exists for — writes to stderr by default, so a
     stdout-only fallback misses the single most common case it was built to catch.
+
+    Neither budget is applied to whatever order the queue happened to arrive in. That made the
+    set of jobs that got a bar an accident of upstream ordering, and — because the agent is
+    one-shot and stateless, so every poll makes the same choice — the same jobs were skipped
+    every time, with nothing in the payload saying so. Live candidates are ranked newest-started
+    first, which is both stable and the order a user would pick: the run submitted five minutes
+    ago is the one being watched. Anything past the budget is reported as skipped rather than
+    silently dropped, and the budget itself is adjustable.
     """
     live_states = (STATE_RUNNING, STATE_COMPLETING)
+    limit = max(0, limit)
     candidates = [
         job
         for job in jobs
         if job["state"] in live_states and job.get("progress") is None and _log_stream_paths(job)
     ]
+    candidates.sort(key=_live_candidate_order, reverse=True)
+    skipped = max(0, len(candidates) - limit)
+    if skipped:
+        warnings.add(
+            W.LOG_PROGRESS_BUDGET_EXCEEDED,
+            f"Log-derived progress was skipped for {skipped} running job(s).",
+            severity="info",
+            detail=(
+                f"At most {limit} running job(s) have their logs read per refresh, so the number "
+                "of filesystem reads does not grow with the size of the queue. The most recently "
+                "started jobs are read first; --log-fallback-limit raises the cap. Jobs using the "
+                "slurmbar_progress SDK are unaffected."
+            ),
+        )
     finished = [
         job
         for job in jobs
@@ -234,8 +262,8 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
         and job.get("progress") is None
         and _log_stream_paths(job)
     ]
-    finished.sort(key=lambda job: job.get("end_time") or "", reverse=True)
-    candidates = candidates[:MAX_LOG_FALLBACK_JOBS] + finished[:MAX_FINISHED_LOG_FALLBACK_JOBS]
+    finished.sort(key=lambda job: (job.get("end_time") or "", job["job_id"]), reverse=True)
+    candidates = candidates[:limit] + finished[:MAX_FINISHED_LOG_FALLBACK_JOBS]
 
     missing_path = [
         job
@@ -295,6 +323,25 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
                 detail=denied,
                 job_id=job["job_id"],
             )
+
+
+def _live_candidate_order(job: Dict[str, Any]) -> tuple:
+    """Rank for the bounded live-log budget: newest start first, then job id.
+
+    Both keys come from the job itself, so the same queue always produces the same selection —
+    unlike the arrival order it replaced, which shuffled with anything that reordered ``squeue``.
+    A running job with no reported start time sorts last: it is the least likely to be the run
+    the user just launched and is watching.
+    """
+    return (job.get("start_time") or "", _job_id_sort_key(job["job_id"]))
+
+
+def _job_id_sort_key(job_id: str) -> tuple:
+    """Numeric where possible, so 1000 sorts after 999 rather than before it."""
+    head, sep, tail = job_id.partition("_")
+    if head.isdigit():
+        return (1, int(head), int(tail) if sep and tail.isdigit() else 0, job_id)
+    return (0, 0, 0, job_id)
 
 
 def _log_stream_paths(job: Dict[str, Any]) -> List[str]:

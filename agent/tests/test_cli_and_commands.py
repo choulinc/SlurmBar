@@ -282,6 +282,14 @@ class TestCLI:
         with pytest.raises(SystemExit):
             build_parser().parse_args([])
 
+    def test_the_log_read_budget_is_adjustable_from_the_command_line(self):
+        from slurmbar_agent import snapshot as snapshot_mod
+
+        default = build_parser().parse_args(["snapshot"])
+        assert default.log_fallback_limit == snapshot_mod.MAX_LOG_FALLBACK_JOBS
+        raised = build_parser().parse_args(["snapshot", "--log-fallback-limit", "40"])
+        assert raised.log_fallback_limit == 40
+
     def test_doctor_emits_json_on_stdout_only(self, capsys, tmp_path: Path, monkeypatch):
         monkeypatch.setenv("SLURMBAR_STATE_DIR", str(tmp_path))
         exit_code = main(["doctor", "--json"])

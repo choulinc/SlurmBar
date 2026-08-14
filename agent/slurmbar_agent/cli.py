@@ -59,6 +59,16 @@ def build_parser() -> argparse.ArgumentParser:
     snap.add_argument("--progress-dir", default=None)
     snap.add_argument("--progress-stale-seconds", type=int, default=DEFAULT_STALE_SECONDS)
     snap.add_argument("--no-log-fallback", action="store_true", help="Disable log-tail progress parsing.")
+    snap.add_argument(
+        "--log-fallback-limit",
+        type=int,
+        default=snapshot_mod.MAX_LOG_FALLBACK_JOBS,
+        help=(
+            "How many running jobs may have their logs read for progress per refresh "
+            f"(default: {snapshot_mod.MAX_LOG_FALLBACK_JOBS}). Raising it costs one filesystem "
+            "read per extra job, per stream, per poll."
+        ),
+    )
     snap.add_argument("--no-sstat", action="store_true", help="Skip live memory collection.")
 
     job = sub.add_parser("job", help="Full detail for one job (on demand).")
@@ -129,6 +139,7 @@ def _dispatch(args: argparse.Namespace, runner: SubprocessRunner) -> Dict[str, A
             progress_dir=args.progress_dir,
             stale_seconds=max(10, args.progress_stale_seconds),
             enable_log_fallback=not args.no_log_fallback,
+            log_fallback_limit=max(0, args.log_fallback_limit),
             enable_sstat=not args.no_sstat,
             timeout=args.timeout,
         )
