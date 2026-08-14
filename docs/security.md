@@ -81,7 +81,8 @@ another user's files (it has no privilege to).
 | Progress `status.json` | 256 KiB |
 | Progress metrics | 64 keys, 200 chars per string value |
 | Any command's stdout | 8 MiB (agent), 16 MiB (app) |
-| Jobs sniffed for log progress per refresh | 12 |
+| Jobs sniffed for log progress per refresh | 12 by default (`--log-fallback-limit`), one read per distinct stream |
+| Log paths resolved from the controller per refresh | 6, and only when `squeue` reported none |
 
 Log files on HPC filesystems routinely reach gigabytes. Nothing reads a whole file: the tail
 reader seeks to `max(0, size - window)` and reads forward, so cost is bounded by the window.
@@ -96,10 +97,21 @@ before any model is constructed:
    half-decoded snapshot. The message says which side to update.
 3. **Structured errors** — an `error` object in the payload surfaces as the agent's message
    rather than a generic decode failure.
-4. **Sanitization** — every string that reaches the UI (job names, reasons, log lines, warnings,
-   errors) passes through `SanitizedText`, which strips ANSI escape sequences, C0/C1 control
-   characters, `DEL`, and the Unicode bidirectional override codepoints (`U+202A`–`U+202E`,
-   `U+2066`–`U+2069`) used for text-spoofing attacks. Lengths are bounded.
+4. **Sanitization** — every string that reaches the UI passes through `SanitizedText`, which
+   strips ANSI escape sequences, C0/C1 control characters, `DEL`, and the Unicode bidirectional
+   override and isolate codepoints (`U+202A`–`U+202E`, `U+2066`–`U+2069`) used for text-spoofing
+   attacks. Lengths are bounded. That is: job names, reasons, user, account, partition, QoS, the
+   raw state string, node names, the progress `kind`, metric names and string metric values, log
+   lines, warnings and errors.
+
+   Paths (`work_dir`, `stdout_path`, `stderr_path`) are the one exception, and are exempt only
+   as *stored* values: they are sent back to the agent to locate a file, and a sanitized path is
+   a different path. Each has a sanitized `…Display` counterpart, and that is what the UI
+   renders. Where an exact path goes somewhere a control character could still act — the
+   `tail -f` snippet the detail view copies to the clipboard — it is shell-quoted.
+
+   Sanitizing can map two distinct metric names onto one; the lexicographically first raw name
+   wins, so the same payload always yields the same rows.
 
 This matters because job names are attacker-influenced in the general case: anyone who can
 submit a job on the cluster chooses the job name that lands in the popover.

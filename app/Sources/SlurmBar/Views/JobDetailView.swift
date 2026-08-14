@@ -157,8 +157,12 @@ struct JobDetailView: View {
                 Button("scancel \(job.jobID)") { copy("scancel \(job.jobID)", label: "Copied") }
                 Button("sacct -j \(job.jobID) --long") { copy("sacct -j \(job.jobID) --long", label: "Copied") }
                 Button("scontrol show job \(job.jobID)") { copy("scontrol show job \(job.jobID)", label: "Copied") }
-                if let path = job.stdoutPath {
-                    Button("tail -f \(path)") { copy("tail -f \(path)", label: "Copied") }
+                if let path = job.stdoutPath, let shown = job.stdoutPathDisplay {
+                    // The menu shows the readable path; the clipboard gets the exact one, quoted,
+                    // because this string is destined for a shell prompt.
+                    Button("tail -f \(shown)") {
+                        copy("tail -f \(ShellQuoting.quote(path))", label: "Copied")
+                    }
                 }
                 Divider()
                 Button("SlurmBar refresh command") {
@@ -556,8 +560,8 @@ private struct MetadataSection: View {
             rows.append(DetailRow(label: "Remaining", value: Formatters.duration(seconds: remaining)))
         }
         if let reason = job.reason { rows.append(DetailRow(label: "Reason", value: reason)) }
-        rows.append(DetailRow(label: "Work dir", value: job.workDir ?? Formatters.notAvailable))
-        rows.append(DetailRow(label: "stdout", value: job.stdoutPath ?? Formatters.notAvailable))
+        rows.append(DetailRow(label: "Work dir", value: job.workDirDisplay ?? Formatters.notAvailable))
+        rows.append(DetailRow(label: "stdout", value: job.stdoutPathDisplay ?? Formatters.notAvailable))
         return rows
     }
 }
