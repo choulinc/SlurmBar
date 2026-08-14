@@ -22,7 +22,7 @@
                                    │                        │        ▲
                                    │                        │        └── written by ────────► slurmbar_progress
                                    │                        │            the workload           inside the job
-                                   │                        └─ read tail of stdout (fallback)
+                                   │                        └─ read tail of stdout/stderr (fallback)
                                    │                        │
                                    └──── normalized JSON ◄──┘
 ```

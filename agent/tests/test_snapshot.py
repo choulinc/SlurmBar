@@ -7,11 +7,14 @@ the real parsing, merging and progress code with recorded Slurm output.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from conftest import read_fixture
+from slurmbar_agent import snapshot as snapshot_mod
+from slurmbar_agent.protocol import WarningCollector
 from slurmbar_agent.runner import FakeRunner
 from slurmbar_agent.snapshot import build_snapshot
 
@@ -265,6 +268,25 @@ class TestProgressIntegration:
         job = next(j for j in snapshot["jobs"] if j["job_id"] == "201551")
         assert job["progress"] is None
 
+    def test_log_fallback_reads_stderr_when_stdout_has_no_progress(self, tmp_path: Path):
+        # tqdm writes to stderr by default, so a stdout-only fallback misses the single most
+        # common progress bar in the ecosystem.
+        log = tmp_path / "slurm-201551.err"
+        log.write_text("  38%|#######   | 380/1000 [00:41<01:08, 9.02it/s]\n")
+        quiet = tmp_path / "slurm-201551.out"
+        quiet.write_text("job started\nallocating buffers\n")
+
+        payload = json.loads(read_fixture("squeue", "squeue-json-2311.json"))
+        payload["jobs"][0]["standard_output"] = str(quiet)
+        payload["jobs"][0]["standard_error"] = str(log)
+        runner = full_runner()
+        runner.stub("squeue --json", json.dumps(payload))
+
+        snapshot = build_snapshot(runner, user="exampleuser", progress_dir=str(tmp_path / "empty"))
+        job = next(j for j in snapshot["jobs"] if j["job_id"] == "201551")
+        assert job["progress"]["source"] == "log_parser"
+        assert job["progress"]["percent"] == 38.0
+
     def test_progress_from_a_failed_job_is_preserved(self, tmp_path: Path):
         self._write_progress(
             tmp_path, "201542", completion="failed", error="CUDA out of memory", current=812
@@ -274,3 +296,110 @@ class TestProgressIntegration:
         assert job["state"] == "FAILED"
         assert job["progress"]["completion"] == "failed"
         assert job["progress"]["current"] == 812
+
+
+class TestLogFallbackStreams:
+    """Which of a job's two output streams the log fallback reads, and in what order."""
+
+    def _job(self, job_id: str = "1", state: str = "RUNNING", **paths) -> dict:
+        job = {"job_id": job_id, "state": state, "progress": None,
+               "stdout_path": None, "stderr_path": None, "end_time": None}
+        job.update(paths)
+        return job
+
+    def _apply(self, jobs) -> WarningCollector:
+        warnings = WarningCollector()
+        snapshot_mod._apply_log_fallback(jobs, warnings)
+        return warnings
+
+    def test_stderr_only_job_still_gets_progress(self, fixtures_dir: Path):
+        job = self._job(stderr_path=str(fixtures_dir / "logs" / "tqdm-progress.log"))
+        self._apply([job])
+        assert job["progress"]["percent"] == 38.0
+
+    def test_a_quiet_stdout_does_not_hide_a_progress_bar_on_stderr(self, fixtures_dir: Path):
+        job = self._job(
+            stdout_path=str(fixtures_dir / "logs" / "no-progress.log"),
+            stderr_path=str(fixtures_dir / "logs" / "tqdm-progress.log"),
+        )
+        self._apply([job])
+        assert job["progress"] is not None
+        assert job["progress"]["percent"] == 38.0
+
+    def test_the_more_confident_reading_wins_whichever_stream_it_is_in(self, fixtures_dir: Path):
+        logs = fixtures_dir / "logs"
+        # `Epoch 375/1000` is a labelled counter (medium); a bare `250/800` is not (low).
+        labelled_on_stderr = self._job(
+            stdout_path=str(logs / "bare-ratio.log"), stderr_path=str(logs / "training-epochs.log")
+        )
+        labelled_on_stdout = self._job(
+            stdout_path=str(logs / "training-epochs.log"), stderr_path=str(logs / "bare-ratio.log")
+        )
+        self._apply([labelled_on_stderr, labelled_on_stdout])
+        for job in (labelled_on_stderr, labelled_on_stdout):
+            assert job["progress"]["unit"] == "epoch"
+            assert job["progress"]["current"] == 375
+
+    def test_equally_confident_readings_are_broken_by_recency_then_by_stdout(self, tmp_path: Path):
+        older = tmp_path / "a.log"
+        newer = tmp_path / "b.log"
+        older.write_text("Epoch 10/100\n")
+        newer.write_text("Epoch 90/100\n")
+        os.utime(older, (1_000_000, 1_000_000))
+        os.utime(newer, (2_000_000, 2_000_000))
+
+        newer_on_stderr = self._job(stdout_path=str(older), stderr_path=str(newer))
+        newer_on_stdout = self._job(stdout_path=str(newer), stderr_path=str(older))
+        self._apply([newer_on_stderr, newer_on_stdout])
+        assert newer_on_stderr["progress"]["current"] == 90
+        assert newer_on_stdout["progress"]["current"] == 90
+
+        # Same file contents and same mtime in both streams: stdout is the tie-breaker, so the
+        # result cannot depend on which stream happened to be read last.
+        tie = self._job(stdout_path=str(newer), stderr_path=str(newer.parent / "c.log"))
+        (tmp_path / "c.log").write_text("Epoch 90/100\n")
+        os.utime(tmp_path / "c.log", (2_000_000, 2_000_000))
+        self._apply([tie])
+        assert tie["progress"]["current"] == 90
+
+    def test_a_shared_path_is_read_once(self, fixtures_dir: Path, monkeypatch):
+        path = str(fixtures_dir / "logs" / "training-epochs.log")
+        reads: list = []
+        real_read_tail = snapshot_mod.logtail.read_tail
+
+        def counting_read_tail(target, **kwargs):
+            reads.append(target)
+            return real_read_tail(target, **kwargs)
+
+        monkeypatch.setattr(snapshot_mod.logtail, "read_tail", counting_read_tail)
+        # Slurm reports the same file for both streams whenever a job was submitted without
+        # --error, which is the common case.
+        job = self._job(stdout_path=path, stderr_path=path)
+        self._apply([job])
+        assert len(reads) == 1
+        assert job["progress"] is not None
+
+    def test_log_path_unknown_is_reported_only_when_neither_stream_is_known(self, fixtures_dir: Path):
+        known = self._job("1", stderr_path=str(fixtures_dir / "logs" / "tqdm-progress.log"))
+        unknown = self._job("2")
+        warnings = self._apply([known, unknown])
+        codes = [w["code"] for w in warnings.to_json()]
+        assert codes.count("LOG_PATH_UNKNOWN") == 1
+        assert "1 running job" in warnings.to_json()[0]["detail"]
+
+    def test_an_unreadable_second_stream_is_not_reported_when_the_first_one_parsed(
+        self, fixtures_dir: Path, tmp_path: Path
+    ):
+        secret = tmp_path / "secret.err"
+        secret.write_text("Epoch 1/2\n")
+        os.chmod(secret, 0o000)
+        try:
+            job = self._job(
+                stdout_path=str(fixtures_dir / "logs" / "training-epochs.log"),
+                stderr_path=str(secret),
+            )
+            warnings = self._apply([job])
+            assert job["progress"]["current"] == 375
+            assert [w["code"] for w in warnings.to_json()] == []
+        finally:
+            os.chmod(secret, 0o600)

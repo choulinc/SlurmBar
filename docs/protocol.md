@@ -87,7 +87,7 @@ bar, because filling a bar against a per-CPU figure would be a lie.
 | `source` | `confidence` | Meaning |
 | --- | --- | --- |
 | `structured_file` | `high` | The workload reported it via `slurmbar_progress`. Authoritative; the only source that can yield an ETA. |
-| `log_parser` | `medium` / `low` | Inferred from the tail of the job's stdout. Labelled **guessed** in the UI; never produces an ETA. |
+| `log_parser` | `medium` / `low` | Inferred from the tail of the job's stdout or stderr, whichever carries the more confident reading. Labelled **guessed** in the UI; never produces an ETA. |
 
 `stale: true` means the workload has stopped updating. The last values remain visible (dimmed),
 and no ETA is derived from a stale sample.

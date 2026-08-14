@@ -10,7 +10,7 @@ Command budget per refresh (worst case):
 
 That is a fixed count regardless of how many jobs the user has. Nothing is queried per job,
 and log files are read only for running jobs that lack structured progress, capped by
-``MAX_LOG_FALLBACK_JOBS``.
+``MAX_LOG_FALLBACK_JOBS`` jobs — at most one read per distinct stream each of them reports.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import socket
 from typing import Any, Dict, List, Optional, Sequence
 
 from . import logtail, progress as progress_mod, sacct, sstat, squeue
-from .logparse import parse_log_lines
+from .logparse import CONF_HIGH, CONF_LOW, CONF_MEDIUM, parse_log_lines
 from .protocol import (
     AGENT_VERSION,
     SCHEMA_VERSION,
@@ -49,6 +49,11 @@ MAX_LOG_FALLBACK_JOBS = 12
 MAX_FINISHED_LOG_FALLBACK_JOBS = 6
 LOG_FALLBACK_WINDOW_BYTES = 64 * 1024
 LOG_FALLBACK_LINES = 120
+
+#: Which parsed reading wins when both of a job's streams contain one. Confidence first: a
+#: labelled ``Epoch 5/10`` in one stream should not lose to a bare ``3/4`` that happens to sit in
+#: a file written a second later.
+_CONFIDENCE_RANK = {CONF_LOW: 0, CONF_MEDIUM: 1, CONF_HIGH: 2}
 
 DEFAULT_HISTORY_HOURS = 24
 
@@ -210,12 +215,16 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
     The finished group is capped tightly and sorted newest-first: a day of accounting history
     can hold hundreds of jobs, and reading every one of their logs on every poll is not a
     trade worth making for output nobody is looking at.
+
+    Both reported streams are inspected, not just stdout. tqdm — the most widely deployed
+    progress bar in the ecosystem this tool exists for — writes to stderr by default, so a
+    stdout-only fallback misses the single most common case it was built to catch.
     """
     live_states = (STATE_RUNNING, STATE_COMPLETING)
     candidates = [
         job
         for job in jobs
-        if job["state"] in live_states and job.get("progress") is None and job.get("stdout_path")
+        if job["state"] in live_states and job.get("progress") is None and _log_stream_paths(job)
     ]
     finished = [
         job
@@ -223,13 +232,17 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
         if job["state"] not in live_states
         and job["state"] != STATE_PENDING
         and job.get("progress") is None
-        and job.get("stdout_path")
+        and _log_stream_paths(job)
     ]
     finished.sort(key=lambda job: job.get("end_time") or "", reverse=True)
     candidates = candidates[:MAX_LOG_FALLBACK_JOBS] + finished[:MAX_FINISHED_LOG_FALLBACK_JOBS]
 
     missing_path = [
-        job for job in jobs if job["state"] == STATE_RUNNING and job.get("progress") is None and not job.get("stdout_path")
+        job
+        for job in jobs
+        if job["state"] == STATE_RUNNING
+        and job.get("progress") is None
+        and not _log_stream_paths(job)
     ]
     if missing_path:
         warnings.add(
@@ -243,26 +256,66 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
         )
 
     for job in candidates:
-        tail = logtail.read_tail(
-            job["stdout_path"],
-            max_lines=LOG_FALLBACK_LINES,
-            window_bytes=LOG_FALLBACK_WINDOW_BYTES,
-        )
-        if not tail.ok:
-            if tail.error_kind == "permission":
-                warnings.add(
-                    W.LOG_UNREADABLE,
-                    f"Permission denied reading the log for job {job['job_id']}.",
-                    severity="info",
-                    detail=tail.path,
-                    job_id=job["job_id"],
-                )
+        best_rank: Optional[tuple] = None
+        best_progress: Optional[Dict[str, Any]] = None
+        denied: Optional[str] = None
+
+        # stdout first, so it wins a tie; index breaks ties in favour of the earlier stream.
+        for index, path in enumerate(_log_stream_paths(job)):
+            tail = logtail.read_tail(
+                path,
+                max_lines=LOG_FALLBACK_LINES,
+                window_bytes=LOG_FALLBACK_WINDOW_BYTES,
+            )
+            if not tail.ok:
+                if tail.error_kind == "permission" and denied is None:
+                    denied = tail.path
+                continue
+            parsed = parse_log_lines(tail.lines)
+            if parsed is None:
+                continue
+            rank = (
+                _CONFIDENCE_RANK.get(parsed.confidence, 0),
+                tail.modified_at or 0.0,
+                -index,
+            )
+            if best_rank is None or rank > best_rank:
+                best_rank = rank
+                best_progress = parsed.to_progress_json(iso_utc(_from_epoch(tail.modified_at)))
+
+        if best_progress is not None:
+            job["progress"] = best_progress
+        elif denied is not None:
+            # Only worth reporting when it actually cost the user a progress bar: a job whose
+            # stderr is unreadable but whose stdout parsed fine has lost nothing.
+            warnings.add(
+                W.LOG_UNREADABLE,
+                f"Permission denied reading the log for job {job['job_id']}.",
+                severity="info",
+                detail=denied,
+                job_id=job["job_id"],
+            )
+
+
+def _log_stream_paths(job: Dict[str, Any]) -> List[str]:
+    """The distinct log paths reported for a job, stdout first.
+
+    Slurm reports the same file for both streams whenever a batch script was submitted without
+    ``--error``, which is the common case; reading it twice would double the I/O budget for no
+    new information.
+    """
+    paths: List[str] = []
+    seen = set()
+    for key in ("stdout_path", "stderr_path"):
+        path = job.get(key)
+        if not path:
             continue
-        parsed = parse_log_lines(tail.lines)
-        if parsed is None:
+        normalized = os.path.normpath(path)
+        if normalized in seen:
             continue
-        updated_at = iso_utc(_from_epoch(tail.modified_at))
-        job["progress"] = parsed.to_progress_json(updated_at)
+        seen.add(normalized)
+        paths.append(path)
+    return paths
 
 
 def _from_epoch(epoch: Optional[float]):
