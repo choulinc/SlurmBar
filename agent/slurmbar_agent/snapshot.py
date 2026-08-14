@@ -11,6 +11,10 @@ Command budget per refresh (worst case):
 That is a fixed count regardless of how many jobs the user has. Nothing is queried per job,
 and log files are read only for running jobs that lack structured progress, capped by
 ``MAX_LOG_FALLBACK_JOBS`` jobs — at most one read per distinct stream each of them reports.
+
+Clusters whose ``squeue`` cannot answer in JSON add up to ``MAX_LOG_PATH_LOOKUPS`` targeted
+``scontrol show job`` calls, because that is the only way to learn a log path there. That is
+also a fixed count, and it is zero wherever ``squeue --json`` works.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ import os
 import socket
 from typing import Any, Dict, List, Optional, Sequence
 
-from . import logtail, progress as progress_mod, sacct, sstat, squeue
+from . import logtail, progress as progress_mod, sacct, scontrol, sstat, squeue
 from .logparse import CONF_HIGH, CONF_LOW, CONF_MEDIUM, parse_log_lines
 from .protocol import (
     AGENT_VERSION,
@@ -47,6 +51,11 @@ MAX_LOG_FALLBACK_JOBS = 12
 #: a hundred-plus jobs, their logs never change again, and only the newest few are being looked
 #: at. This is a fixed per-poll cost, not one that grows with how long the history window is.
 MAX_FINISHED_LOG_FALLBACK_JOBS = 6
+#: How many jobs may have their log paths resolved from the controller in one refresh, and only
+#: when ``squeue`` could not report any. Each lookup is a targeted single-job ``scontrol show
+#: job`` — not a queue scan — but it is still a controller RPC, so the count is capped well below
+#: the read budget rather than tracking it.
+MAX_LOG_PATH_LOOKUPS = 6
 LOG_FALLBACK_WINDOW_BYTES = 64 * 1024
 LOG_FALLBACK_LINES = 120
 
@@ -129,6 +138,7 @@ def build_snapshot(
             job["progress"] = found
 
     if enable_log_fallback:
+        _resolve_missing_log_paths(runner, jobs, limit=log_fallback_limit, timeout=timeout)
         _apply_log_fallback(jobs, warnings, limit=log_fallback_limit)
 
     summary = _summarize(jobs)
@@ -198,6 +208,52 @@ def _fill_missing(live: Dict[str, Any], historical: Dict[str, Any]) -> None:
     for key in ("gpu_memory_used_bytes", "gpu_memory_limit_bytes", "gpu_utilization_percent"):
         if live_res.get(key) is None and hist_res.get(key) is not None:
             live_res[key] = hist_res[key]
+
+
+def _resolve_missing_log_paths(
+    runner: CommandRunner,
+    jobs: List[Dict[str, Any]],
+    limit: int = MAX_LOG_PATH_LOOKUPS,
+    timeout: float = 15.0,
+) -> None:
+    """Ask the controller for log paths that ``squeue`` could not report.
+
+    ``squeue -o`` has no format code for ``StdOut``/``StdErr``, so whenever ``--json`` is
+    unsupported, disabled or malformed the text fallback leaves both paths empty. That turned a
+    degraded queue transport into a silent loss of the whole log-progress feature: the README
+    promises progress bars for workloads that print ``Epoch 5/100`` and never mention that the
+    promise depends on the queue being readable as JSON.
+
+    The fix stays inside the same bound the rest of the snapshot keeps. Only live jobs that are
+    actually candidates for a log read are resolved, newest first and capped by
+    ``MAX_LOG_PATH_LOOKUPS``, so a queue of any size costs a fixed, small number of targeted
+    single-job RPCs — never a per-job loop, and nothing at all on clusters where ``squeue``
+    already answers with paths.
+    """
+    budget = min(max(0, limit), MAX_LOG_PATH_LOOKUPS)
+    if budget <= 0:
+        return
+
+    unresolved = [
+        job
+        for job in jobs
+        if job["state"] in (STATE_RUNNING, STATE_COMPLETING)
+        and job.get("progress") is None
+        and not _log_stream_paths(job)
+        and is_valid_job_id(job["job_id"])
+    ]
+    if not unresolved or runner.which("scontrol") is None:
+        return
+
+    unresolved.sort(key=_live_candidate_order, reverse=True)
+    for job in unresolved[:budget]:
+        fields = scontrol.show_job(runner, job["job_id"], timeout=timeout)
+        if not fields:
+            continue
+        paths = scontrol.log_paths(fields)
+        for key in ("stdout_path", "stderr_path", "work_dir"):
+            if job.get(key) is None and paths.get(key):
+                job[key] = paths[key]
 
 
 def _apply_log_fallback(

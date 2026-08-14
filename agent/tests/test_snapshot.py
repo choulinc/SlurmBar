@@ -298,6 +298,81 @@ class TestProgressIntegration:
         assert job["progress"]["current"] == 812
 
 
+class TestLogPathResolution:
+    """Log progress on clusters whose squeue cannot report a log path."""
+
+    def _scontrol_line(self, job_id: str, stdout: str, stderr: str = "") -> str:
+        return (
+            f"JobId={job_id} JobName=example UserId=exampleuser(1000) "
+            f"WorkDir=/home/exampleuser StdOut={stdout} StdErr={stderr or stdout}\n"
+        )
+
+    def _running(self, job_id: str, started: str) -> dict:
+        return {
+            "job_id": job_id, "state": "RUNNING", "progress": None,
+            "stdout_path": None, "stderr_path": None, "work_dir": None,
+            "start_time": started, "end_time": None,
+        }
+
+    def test_text_fallback_still_gets_log_derived_progress(self, tmp_path: Path):
+        log = tmp_path / "slurm-201551.out"
+        log.write_text("Epoch 42/100 loss=0.51\n")
+
+        runner = FakeRunner()
+        runner.stub("squeue --json", "", returncode=1, stderr="unrecognized option '--json'")
+        runner.stub("squeue --noheader", read_fixture("squeue", "squeue-text.txt"))
+        runner.stub("sacct", "")
+        runner.stub("sstat", "")
+        runner.stub("scontrol show config", "ClusterName = examplecluster\n")
+        runner.stub(
+            "scontrol --oneliner show job 201551", self._scontrol_line("201551", str(log))
+        )
+
+        snapshot = build_snapshot(
+            runner, user="exampleuser", progress_dir=str(tmp_path / "empty")
+        )
+        job = next(j for j in snapshot["jobs"] if j["job_id"] == "201551")
+        assert job["stdout_path"] == str(log)
+        assert job["progress"]["source"] == "log_parser"
+        assert job["progress"]["percent"] == 42.0
+
+    def test_resolution_costs_a_fixed_number_of_controller_calls(self, tmp_path: Path):
+        runner = FakeRunner()
+        jobs = [
+            self._running(str(600 + n), f"2026-07-22T{n:02d}:00:00Z") for n in range(20)
+        ]
+        snapshot_mod._resolve_missing_log_paths(runner, jobs)
+        lookups = [c for c in runner.calls if c[:4] == ["scontrol", "--oneliner", "show", "job"]]
+        assert len(lookups) == snapshot_mod.MAX_LOG_PATH_LOOKUPS
+        # The same jobs the read budget would have picked: newest started first.
+        assert [c[4] for c in lookups] == [str(600 + n) for n in range(19, 13, -1)]
+
+    def test_jobs_that_already_have_a_path_are_never_looked_up(self, tmp_path: Path):
+        runner = FakeRunner()
+        job = self._running("601", "2026-07-22T01:00:00Z")
+        job["stderr_path"] = "/home/exampleuser/only-stderr.log"
+        snapshot_mod._resolve_missing_log_paths(runner, [job])
+        assert runner.calls == []
+
+    def test_a_cluster_without_scontrol_degrades_quietly(self):
+        runner = FakeRunner(available=["squeue"])
+        job = self._running("602", "2026-07-22T01:00:00Z")
+        snapshot_mod._resolve_missing_log_paths(runner, [job])
+        assert runner.calls == []
+        assert job["stdout_path"] is None
+
+    def test_an_unexpanded_pattern_is_reported_as_no_path_rather_than_a_wrong_one(self):
+        runner = FakeRunner()
+        # %a cannot be resolved for an array job whose task id scontrol did not report.
+        runner.stub(
+            "scontrol --oneliner show job 603",
+            "JobId=603 JobName=sweep StdOut=/home/exampleuser/sweep-%A_%a.out\n",
+        )
+        job = self._running("603", "2026-07-22T01:00:00Z")
+        snapshot_mod._resolve_missing_log_paths(runner, [job])
+        assert job["stdout_path"] is None
+
+
 class TestLogFallbackBudget:
     """Which running jobs get a log read when there are more of them than the budget allows."""
 

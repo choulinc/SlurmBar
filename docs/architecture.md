@@ -143,9 +143,11 @@ The agent's cost is **fixed per refresh**, not proportional to job count:
 | `sstat --allsteps --jobs=a,b,c` | Live memory for *all* running jobs in one call |
 | `scontrol show config` | Cluster name + Slurm version (one call gets both) |
 
-`scontrol show job` is **not** in that list. It's the only way to learn a job's `StdOut` path
-when `squeue --json` is unavailable, but it costs one controller RPC per job — so it runs only
-when the user opens a specific job.
+`scontrol show job` is **not** in that list on a healthy cluster. It costs one controller RPC
+per job, so it runs only when the user opens a specific job — and, where `squeue --json` is
+unavailable and it is therefore the only way to learn a `StdOut` path at all, for at most
+`MAX_LOG_PATH_LOOKUPS` of the most recently started running jobs. That keeps the degraded path
+at a fixed cost too, instead of trading log-derived progress away entirely.
 
 ### Parsing strategy
 

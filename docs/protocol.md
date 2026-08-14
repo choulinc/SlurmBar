@@ -106,7 +106,7 @@ about.
 | --- | --- | --- |
 | `SLURM_MISSING` | error | No jobs at all. |
 | `SQUEUE_FAILED` | error | Queue unreadable. |
-| `SQUEUE_JSON_UNSUPPORTED` | info | Text fallback in use; log paths unavailable while polling. |
+| `SQUEUE_JSON_UNSUPPORTED` | info | Text fallback in use; log paths come from a small, capped number of `scontrol` lookups. |
 | `SQUEUE_TEXT_UNPARSABLE` | warning | One line skipped; the rest are fine. |
 | `SACCT_UNAVAILABLE` / `SACCT_FAILED` / `ACCOUNTING_DISABLED` | info/warning | No finished jobs, no exit codes. |
 | `SSTAT_UNAVAILABLE` / `SSTAT_FAILED` | info | No live memory. Very common and benign. |
