@@ -18,7 +18,7 @@ Current version: **`schema_version: 1`**.
 | `slurmbar-agent paths --json` | diagnostic | Manual |
 
 Optional flags on `snapshot`: `--user`, `--history-hours`, `--progress-dir`,
-`--progress-stale-seconds`, `--no-log-fallback`, `--no-sstat`.
+`--progress-stale-seconds`, `--no-log-fallback`, `--log-fallback-limit`, `--no-sstat`.
 
 ## Conventions
 
@@ -87,7 +87,7 @@ bar, because filling a bar against a per-CPU figure would be a lie.
 | `source` | `confidence` | Meaning |
 | --- | --- | --- |
 | `structured_file` | `high` | The workload reported it via `slurmbar_progress`. Authoritative; the only source that can yield an ETA. |
-| `log_parser` | `medium` / `low` | Inferred from the tail of the job's stdout. Labelled **guessed** in the UI; never produces an ETA. |
+| `log_parser` | `medium` / `low` | Inferred from the tail of the job's stdout or stderr, whichever carries the more confident reading. Labelled **guessed** in the UI; never produces an ETA. |
 
 `stale: true` means the workload has stopped updating. The last values remain visible (dimmed),
 and no ETA is derived from a stale sample.
@@ -106,7 +106,7 @@ about.
 | --- | --- | --- |
 | `SLURM_MISSING` | error | No jobs at all. |
 | `SQUEUE_FAILED` | error | Queue unreadable. |
-| `SQUEUE_JSON_UNSUPPORTED` | info | Text fallback in use; log paths unavailable while polling. |
+| `SQUEUE_JSON_UNSUPPORTED` | info | Text fallback in use; log paths come from a small, capped number of `scontrol` lookups. |
 | `SQUEUE_TEXT_UNPARSABLE` | warning | One line skipped; the rest are fine. |
 | `SACCT_UNAVAILABLE` / `SACCT_FAILED` / `ACCOUNTING_DISABLED` | info/warning | No finished jobs, no exit codes. |
 | `SSTAT_UNAVAILABLE` / `SSTAT_FAILED` | info | No live memory. Very common and benign. |
@@ -116,6 +116,7 @@ about.
 | `PROGRESS_FILE_INVALID` / `PROGRESS_SCHEMA_UNSUPPORTED` | warning | That job's progress ignored. |
 | `PROGRESS_STALE` | info | Workload stopped updating. |
 | `LOG_PATH_UNKNOWN` / `LOG_UNREADABLE` | info | No log tail for that job. |
+| `LOG_PROGRESS_BUDGET_EXCEEDED` | info | More running jobs than the per-refresh log-read budget; the newest were read. Raise with `--log-fallback-limit`. |
 | `COMMAND_TIMEOUT` / `COMMAND_FAILED` | warning/error | A Slurm command didn't complete. |
 | `PARTIAL_DATA` | warning | Some records were skipped. |
 

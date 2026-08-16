@@ -7,11 +7,14 @@ the real parsing, merging and progress code with recorded Slurm output.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from conftest import read_fixture
+from slurmbar_agent import snapshot as snapshot_mod
+from slurmbar_agent.protocol import WarningCollector
 from slurmbar_agent.runner import FakeRunner
 from slurmbar_agent.snapshot import build_snapshot
 
@@ -265,6 +268,25 @@ class TestProgressIntegration:
         job = next(j for j in snapshot["jobs"] if j["job_id"] == "201551")
         assert job["progress"] is None
 
+    def test_log_fallback_reads_stderr_when_stdout_has_no_progress(self, tmp_path: Path):
+        # tqdm writes to stderr by default, so a stdout-only fallback misses the single most
+        # common progress bar in the ecosystem.
+        log = tmp_path / "slurm-201551.err"
+        log.write_text("  38%|#######   | 380/1000 [00:41<01:08, 9.02it/s]\n")
+        quiet = tmp_path / "slurm-201551.out"
+        quiet.write_text("job started\nallocating buffers\n")
+
+        payload = json.loads(read_fixture("squeue", "squeue-json-2311.json"))
+        payload["jobs"][0]["standard_output"] = str(quiet)
+        payload["jobs"][0]["standard_error"] = str(log)
+        runner = full_runner()
+        runner.stub("squeue --json", json.dumps(payload))
+
+        snapshot = build_snapshot(runner, user="exampleuser", progress_dir=str(tmp_path / "empty"))
+        job = next(j for j in snapshot["jobs"] if j["job_id"] == "201551")
+        assert job["progress"]["source"] == "log_parser"
+        assert job["progress"]["percent"] == 38.0
+
     def test_progress_from_a_failed_job_is_preserved(self, tmp_path: Path):
         self._write_progress(
             tmp_path, "201542", completion="failed", error="CUDA out of memory", current=812
@@ -274,3 +296,256 @@ class TestProgressIntegration:
         assert job["state"] == "FAILED"
         assert job["progress"]["completion"] == "failed"
         assert job["progress"]["current"] == 812
+
+
+class TestLogPathResolution:
+    """Log progress on clusters whose squeue cannot report a log path."""
+
+    def _scontrol_line(self, job_id: str, stdout: str, stderr: str = "") -> str:
+        return (
+            f"JobId={job_id} JobName=example UserId=exampleuser(1000) "
+            f"WorkDir=/home/exampleuser StdOut={stdout} StdErr={stderr or stdout}\n"
+        )
+
+    def _running(self, job_id: str, started: str) -> dict:
+        return {
+            "job_id": job_id, "state": "RUNNING", "progress": None,
+            "stdout_path": None, "stderr_path": None, "work_dir": None,
+            "start_time": started, "end_time": None,
+        }
+
+    def test_text_fallback_still_gets_log_derived_progress(self, tmp_path: Path):
+        log = tmp_path / "slurm-201551.out"
+        log.write_text("Epoch 42/100 loss=0.51\n")
+
+        runner = FakeRunner()
+        runner.stub("squeue --json", "", returncode=1, stderr="unrecognized option '--json'")
+        runner.stub("squeue --noheader", read_fixture("squeue", "squeue-text.txt"))
+        runner.stub("sacct", "")
+        runner.stub("sstat", "")
+        runner.stub("scontrol show config", "ClusterName = examplecluster\n")
+        runner.stub(
+            "scontrol --oneliner show job 201551", self._scontrol_line("201551", str(log))
+        )
+
+        snapshot = build_snapshot(
+            runner, user="exampleuser", progress_dir=str(tmp_path / "empty")
+        )
+        job = next(j for j in snapshot["jobs"] if j["job_id"] == "201551")
+        assert job["stdout_path"] == str(log)
+        assert job["progress"]["source"] == "log_parser"
+        assert job["progress"]["percent"] == 42.0
+
+    def test_resolution_costs_a_fixed_number_of_controller_calls(self, tmp_path: Path):
+        runner = FakeRunner()
+        jobs = [
+            self._running(str(600 + n), f"2026-07-22T{n:02d}:00:00Z") for n in range(20)
+        ]
+        snapshot_mod._resolve_missing_log_paths(runner, jobs)
+        lookups = [c for c in runner.calls if c[:4] == ["scontrol", "--oneliner", "show", "job"]]
+        assert len(lookups) == snapshot_mod.MAX_LOG_PATH_LOOKUPS
+        # The same jobs the read budget would have picked: newest started first.
+        assert [c[4] for c in lookups] == [str(600 + n) for n in range(19, 13, -1)]
+
+    def test_jobs_that_already_have_a_path_are_never_looked_up(self, tmp_path: Path):
+        runner = FakeRunner()
+        job = self._running("601", "2026-07-22T01:00:00Z")
+        job["stderr_path"] = "/home/exampleuser/only-stderr.log"
+        snapshot_mod._resolve_missing_log_paths(runner, [job])
+        assert runner.calls == []
+
+    def test_a_cluster_without_scontrol_degrades_quietly(self):
+        runner = FakeRunner(available=["squeue"])
+        job = self._running("602", "2026-07-22T01:00:00Z")
+        snapshot_mod._resolve_missing_log_paths(runner, [job])
+        assert runner.calls == []
+        assert job["stdout_path"] is None
+
+    def test_an_unexpanded_pattern_is_reported_as_no_path_rather_than_a_wrong_one(self):
+        runner = FakeRunner()
+        # %a cannot be resolved for an array job whose task id scontrol did not report.
+        runner.stub(
+            "scontrol --oneliner show job 603",
+            "JobId=603 JobName=sweep StdOut=/home/exampleuser/sweep-%A_%a.out\n",
+        )
+        job = self._running("603", "2026-07-22T01:00:00Z")
+        snapshot_mod._resolve_missing_log_paths(runner, [job])
+        assert job["stdout_path"] is None
+
+
+class TestLogFallbackBudget:
+    """Which running jobs get a log read when there are more of them than the budget allows."""
+
+    def _running(self, job_id: str, path: str, started: str) -> dict:
+        return {
+            "job_id": job_id, "state": "RUNNING", "progress": None,
+            "stdout_path": path, "stderr_path": None,
+            "start_time": started, "end_time": None,
+        }
+
+    def _queue(self, fixtures_dir: Path, count: int) -> list:
+        path = str(fixtures_dir / "logs" / "training-epochs.log")
+        # Job 1 started first; job `count` most recently.
+        return [
+            self._running(str(n), path, f"2026-07-22T{n:02d}:00:00Z")
+            for n in range(1, count + 1)
+        ]
+
+    def _apply(self, jobs, **kwargs) -> list:
+        warnings = WarningCollector()
+        snapshot_mod._apply_log_fallback(jobs, warnings, **kwargs)
+        return warnings.to_json()
+
+    def test_jobs_past_the_budget_are_reported_rather_than_silently_skipped(self, fixtures_dir: Path):
+        jobs = self._queue(fixtures_dir, 13)
+        warnings = self._apply(jobs)
+
+        with_progress = {job["job_id"] for job in jobs if job["progress"]}
+        assert len(with_progress) == snapshot_mod.MAX_LOG_FALLBACK_JOBS
+        budget = next(w for w in warnings if w["code"] == "LOG_PROGRESS_BUDGET_EXCEEDED")
+        assert "1 running job" in budget["message"]
+        assert budget["severity"] == "info"
+
+    def test_the_newest_running_jobs_are_the_ones_that_get_read(self, fixtures_dir: Path):
+        jobs = self._queue(fixtures_dir, 13)
+        self._apply(jobs)
+        assert jobs[0]["progress"] is None  # started first, and so wanted least
+        assert all(job["progress"] is not None for job in jobs[1:])
+
+    def test_selection_does_not_depend_on_the_order_squeue_returned(self, fixtures_dir: Path):
+        forwards = self._queue(fixtures_dir, 13)
+        backwards = list(reversed(self._queue(fixtures_dir, 13)))
+        self._apply(forwards)
+        self._apply(backwards)
+        assert {j["job_id"] for j in forwards if j["progress"]} == {
+            j["job_id"] for j in backwards if j["progress"]
+        }
+
+    def test_the_budget_is_configurable(self, fixtures_dir: Path):
+        jobs = self._queue(fixtures_dir, 13)
+        warnings = self._apply(jobs, limit=13)
+        assert all(job["progress"] is not None for job in jobs)
+        assert [w for w in warnings if w["code"] == "LOG_PROGRESS_BUDGET_EXCEEDED"] == []
+
+        jobs = self._queue(fixtures_dir, 13)
+        warnings = self._apply(jobs, limit=0)
+        assert all(job["progress"] is None for job in jobs)
+        assert "13 running job" in warnings[0]["message"]
+
+    def test_reads_stay_bounded_by_the_budget(self, fixtures_dir: Path, monkeypatch):
+        reads: list = []
+        real_read_tail = snapshot_mod.logtail.read_tail
+        monkeypatch.setattr(
+            snapshot_mod.logtail,
+            "read_tail",
+            lambda target, **kwargs: (reads.append(target), real_read_tail(target, **kwargs))[1],
+        )
+        self._apply(self._queue(fixtures_dir, 40))
+        assert len(reads) == snapshot_mod.MAX_LOG_FALLBACK_JOBS
+
+
+class TestLogFallbackStreams:
+    """Which of a job's two output streams the log fallback reads, and in what order."""
+
+    def _job(self, job_id: str = "1", state: str = "RUNNING", **paths) -> dict:
+        job = {"job_id": job_id, "state": state, "progress": None,
+               "stdout_path": None, "stderr_path": None, "end_time": None}
+        job.update(paths)
+        return job
+
+    def _apply(self, jobs) -> WarningCollector:
+        warnings = WarningCollector()
+        snapshot_mod._apply_log_fallback(jobs, warnings)
+        return warnings
+
+    def test_stderr_only_job_still_gets_progress(self, fixtures_dir: Path):
+        job = self._job(stderr_path=str(fixtures_dir / "logs" / "tqdm-progress.log"))
+        self._apply([job])
+        assert job["progress"]["percent"] == 38.0
+
+    def test_a_quiet_stdout_does_not_hide_a_progress_bar_on_stderr(self, fixtures_dir: Path):
+        job = self._job(
+            stdout_path=str(fixtures_dir / "logs" / "no-progress.log"),
+            stderr_path=str(fixtures_dir / "logs" / "tqdm-progress.log"),
+        )
+        self._apply([job])
+        assert job["progress"] is not None
+        assert job["progress"]["percent"] == 38.0
+
+    def test_the_more_confident_reading_wins_whichever_stream_it_is_in(self, fixtures_dir: Path):
+        logs = fixtures_dir / "logs"
+        # `Epoch 375/1000` is a labelled counter (medium); a bare `250/800` is not (low).
+        labelled_on_stderr = self._job(
+            stdout_path=str(logs / "bare-ratio.log"), stderr_path=str(logs / "training-epochs.log")
+        )
+        labelled_on_stdout = self._job(
+            stdout_path=str(logs / "training-epochs.log"), stderr_path=str(logs / "bare-ratio.log")
+        )
+        self._apply([labelled_on_stderr, labelled_on_stdout])
+        for job in (labelled_on_stderr, labelled_on_stdout):
+            assert job["progress"]["unit"] == "epoch"
+            assert job["progress"]["current"] == 375
+
+    def test_equally_confident_readings_are_broken_by_recency_then_by_stdout(self, tmp_path: Path):
+        older = tmp_path / "a.log"
+        newer = tmp_path / "b.log"
+        older.write_text("Epoch 10/100\n")
+        newer.write_text("Epoch 90/100\n")
+        os.utime(older, (1_000_000, 1_000_000))
+        os.utime(newer, (2_000_000, 2_000_000))
+
+        newer_on_stderr = self._job(stdout_path=str(older), stderr_path=str(newer))
+        newer_on_stdout = self._job(stdout_path=str(newer), stderr_path=str(older))
+        self._apply([newer_on_stderr, newer_on_stdout])
+        assert newer_on_stderr["progress"]["current"] == 90
+        assert newer_on_stdout["progress"]["current"] == 90
+
+        # Same file contents and same mtime in both streams: stdout is the tie-breaker, so the
+        # result cannot depend on which stream happened to be read last.
+        tie = self._job(stdout_path=str(newer), stderr_path=str(newer.parent / "c.log"))
+        (tmp_path / "c.log").write_text("Epoch 90/100\n")
+        os.utime(tmp_path / "c.log", (2_000_000, 2_000_000))
+        self._apply([tie])
+        assert tie["progress"]["current"] == 90
+
+    def test_a_shared_path_is_read_once(self, fixtures_dir: Path, monkeypatch):
+        path = str(fixtures_dir / "logs" / "training-epochs.log")
+        reads: list = []
+        real_read_tail = snapshot_mod.logtail.read_tail
+
+        def counting_read_tail(target, **kwargs):
+            reads.append(target)
+            return real_read_tail(target, **kwargs)
+
+        monkeypatch.setattr(snapshot_mod.logtail, "read_tail", counting_read_tail)
+        # Slurm reports the same file for both streams whenever a job was submitted without
+        # --error, which is the common case.
+        job = self._job(stdout_path=path, stderr_path=path)
+        self._apply([job])
+        assert len(reads) == 1
+        assert job["progress"] is not None
+
+    def test_log_path_unknown_is_reported_only_when_neither_stream_is_known(self, fixtures_dir: Path):
+        known = self._job("1", stderr_path=str(fixtures_dir / "logs" / "tqdm-progress.log"))
+        unknown = self._job("2")
+        warnings = self._apply([known, unknown])
+        codes = [w["code"] for w in warnings.to_json()]
+        assert codes.count("LOG_PATH_UNKNOWN") == 1
+        assert "1 running job" in warnings.to_json()[0]["detail"]
+
+    def test_an_unreadable_second_stream_is_not_reported_when_the_first_one_parsed(
+        self, fixtures_dir: Path, tmp_path: Path
+    ):
+        secret = tmp_path / "secret.err"
+        secret.write_text("Epoch 1/2\n")
+        os.chmod(secret, 0o000)
+        try:
+            job = self._job(
+                stdout_path=str(fixtures_dir / "logs" / "training-epochs.log"),
+                stderr_path=str(secret),
+            )
+            warnings = self._apply([job])
+            assert job["progress"]["current"] == 375
+            assert [w["code"] for w in warnings.to_json()] == []
+        finally:
+            os.chmod(secret, 0o600)

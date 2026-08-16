@@ -55,7 +55,7 @@ def job_detail(
     )
     if job_id in structured:
         job["progress"] = structured[job_id]
-    elif job["state"] == STATE_RUNNING and job.get("stdout_path"):
+    elif job["state"] == STATE_RUNNING and (job.get("stdout_path") or job.get("stderr_path")):
         snapshot_mod._apply_log_fallback([job], warnings)
 
     return {

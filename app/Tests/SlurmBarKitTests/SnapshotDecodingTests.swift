@@ -234,6 +234,103 @@ final class SnapshotDecodingTests: XCTestCase {
         XCTAssertTrue(name.contains("job"))
     }
 
+    /// Every display-only string on a job, with one attack per field.
+    func testSanitizesEveryRemoteStringThatReachesTheUI() throws {
+        let json = """
+        {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z",
+         "cluster":{"name":null,"hostname":null,"slurm_version":null},
+         "summary":{"running":1,"pending":0,"completing":0,"failed_recently":0,"completed_recently":0},
+         "jobs":[{"job_id":"1","name":"job","state":"RUNNING",
+                  "state_raw":"RUNNING\\u001b[2K\\u000aCOMPLETED",
+                  "user":"root\\u202Enimda","account":"acct\\u0007","partition":"gpu\\u001b]0;title\\u0007",
+                  "qos":"normal\\u2066","nodes":["node-1\\u000a\\u000afake-2","node\\u009b31m"],
+                  "work_dir":"/home/u/\\u202Egnp.txt","stdout_path":"/home/u/\\u202Egnp.log",
+                  "stderr_path":"/home/u/err\\u0000.log",
+                  "resources":{"memory_used_bytes":null,"memory_limit_bytes":null,"memory_semantics":"unavailable"},
+                  "progress":{"source":"structured_file","kind":"training\\u001b[31m","percent":50,
+                              "metrics":{"lo\\u001b[31mss":1.5}}}],
+         "warnings":[]}
+        """
+        let job = try XCTUnwrap(decoder.decodeSnapshot(from: Data(json.utf8)).jobs.first)
+
+        let displayed: [String] = [
+            job.stateRaw, job.user, job.account, job.partition, job.qos,
+            job.workDirDisplay, job.stdoutPathDisplay, job.stderrPathDisplay,
+            job.progress?.kind,
+        ].compactMap { $0 } + job.nodes + (job.progress.map { Array($0.metrics.keys) } ?? [])
+
+        XCTAssertEqual(displayed.count, 12)
+        for value in displayed {
+            XCTAssertFalse(value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F },
+                           "C0/DEL survived in \(value.debugDescription)")
+            XCTAssertFalse(value.unicodeScalars.contains { (0x80...0x9F).contains($0.value) },
+                           "C1 survived in \(value.debugDescription)")
+            XCTAssertFalse(value.unicodeScalars.contains { (0x202A...0x202E).contains($0.value) },
+                           "bidi override survived in \(value.debugDescription)")
+            XCTAssertFalse(value.unicodeScalars.contains { (0x2066...0x2069).contains($0.value) },
+                           "bidi isolate survived in \(value.debugDescription)")
+            XCTAssertFalse(value.contains("\u{1B}"), "escape survived in \(value.debugDescription)")
+        }
+        XCTAssertEqual(job.nodes.count, 2)  // an embedded newline does not become an extra node
+        XCTAssertEqual(job.progress?.metrics.keys.first, "loss")
+    }
+
+    /// A path is handed back to the agent to find a file, so the stored value must stay exact.
+    func testKeepsLogPathsExactWhileSanitizingTheirDisplayForm() throws {
+        let json = """
+        {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z",
+         "cluster":{"name":null,"hostname":null,"slurm_version":null},
+         "summary":{"running":1,"pending":0,"completing":0,"failed_recently":0,"completed_recently":0},
+         "jobs":[{"job_id":"1","name":"job","state":"RUNNING",
+                  "stdout_path":"/home/u/weird\\u0009name.log",
+                  "resources":{"memory_used_bytes":null,"memory_limit_bytes":null,"memory_semantics":"unavailable"},
+                  "progress":null}],
+         "warnings":[]}
+        """
+        let job = try XCTUnwrap(decoder.decodeSnapshot(from: Data(json.utf8)).jobs.first)
+        XCTAssertEqual(job.stdoutPath, "/home/u/weird\tname.log")
+    }
+
+    func testBoundsOversizedRemoteStrings() throws {
+        let long = String(repeating: "A", count: 5_000)
+        let json = """
+        {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z",
+         "cluster":{"name":null,"hostname":null,"slurm_version":null},
+         "summary":{"running":1,"pending":0,"completing":0,"failed_recently":0,"completed_recently":0},
+         "jobs":[{"job_id":"1","name":"job","state":"RUNNING","user":"\(long)","state_raw":"\(long)",
+                  "partition":"\(long)","nodes":["\(long)"],"stdout_path":"/tmp/\(long)",
+                  "resources":{"memory_used_bytes":null,"memory_limit_bytes":null,"memory_semantics":"unavailable"},
+                  "progress":{"source":"log_parser","kind":"\(long)","percent":1,"metrics":{"\(long)":1}}}],
+         "warnings":[]}
+        """
+        let job = try XCTUnwrap(decoder.decodeSnapshot(from: Data(json.utf8)).jobs.first)
+        XCTAssertLessThanOrEqual(job.user?.count ?? 0, 81)
+        XCTAssertLessThanOrEqual(job.stateRaw?.count ?? 0, 61)
+        XCTAssertLessThanOrEqual(job.partition?.count ?? 0, 81)
+        XCTAssertLessThanOrEqual(job.nodes[0].count, 81)
+        XCTAssertLessThanOrEqual(job.stdoutPathDisplay?.count ?? 0, 301)
+        XCTAssertLessThanOrEqual(job.progress?.kind?.count ?? 0, 61)
+        XCTAssertLessThanOrEqual(job.progress?.metrics.keys.first?.count ?? 0, 61)
+        // …and the path itself is still whole, because the agent has to be able to find it.
+        XCTAssertEqual(job.stdoutPath?.count, 5_005)
+    }
+
+    /// Two raw metric names can clean to the same name; the result must not depend on the
+    /// dictionary's iteration order.
+    func testCollidingMetricNamesResolveTheSameWayEveryTime() throws {
+        let raw: [String: MetricValue] = [
+            "loss\u{1B}[31m": .number(1),
+            "loss": .number(2),
+            "\u{202E}loss": .number(3),
+            "\u{1B}[0m": .number(4),  // cleans away to nothing
+        ]
+        let cleaned = JobProgress.sanitizedMetricNames(raw)
+        XCTAssertEqual(cleaned, ["loss": .number(2)])
+        for _ in 0..<20 {
+            XCTAssertEqual(JobProgress.sanitizedMetricNames(raw), cleaned)
+        }
+    }
+
     // MARK: - Other payloads
 
     func testDecodesDoctorReports() throws {

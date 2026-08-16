@@ -10,7 +10,11 @@ Command budget per refresh (worst case):
 
 That is a fixed count regardless of how many jobs the user has. Nothing is queried per job,
 and log files are read only for running jobs that lack structured progress, capped by
-``MAX_LOG_FALLBACK_JOBS``.
+``MAX_LOG_FALLBACK_JOBS`` jobs — at most one read per distinct stream each of them reports.
+
+Clusters whose ``squeue`` cannot answer in JSON add up to ``MAX_LOG_PATH_LOOKUPS`` targeted
+``scontrol show job`` calls, because that is the only way to learn a log path there. That is
+also a fixed count, and it is zero wherever ``squeue --json`` works.
 """
 
 from __future__ import annotations
@@ -20,8 +24,8 @@ import os
 import socket
 from typing import Any, Dict, List, Optional, Sequence
 
-from . import logtail, progress as progress_mod, sacct, sstat, squeue
-from .logparse import parse_log_lines
+from . import logtail, progress as progress_mod, sacct, scontrol, sstat, squeue
+from .logparse import CONF_HIGH, CONF_LOW, CONF_MEDIUM, parse_log_lines
 from .protocol import (
     AGENT_VERSION,
     SCHEMA_VERSION,
@@ -47,8 +51,18 @@ MAX_LOG_FALLBACK_JOBS = 12
 #: a hundred-plus jobs, their logs never change again, and only the newest few are being looked
 #: at. This is a fixed per-poll cost, not one that grows with how long the history window is.
 MAX_FINISHED_LOG_FALLBACK_JOBS = 6
+#: How many jobs may have their log paths resolved from the controller in one refresh, and only
+#: when ``squeue`` could not report any. Each lookup is a targeted single-job ``scontrol show
+#: job`` — not a queue scan — but it is still a controller RPC, so the count is capped well below
+#: the read budget rather than tracking it.
+MAX_LOG_PATH_LOOKUPS = 6
 LOG_FALLBACK_WINDOW_BYTES = 64 * 1024
 LOG_FALLBACK_LINES = 120
+
+#: Which parsed reading wins when both of a job's streams contain one. Confidence first: a
+#: labelled ``Epoch 5/10`` in one stream should not lose to a bare ``3/4`` that happens to sit in
+#: a file written a second later.
+_CONFIDENCE_RANK = {CONF_LOW: 0, CONF_MEDIUM: 1, CONF_HIGH: 2}
 
 DEFAULT_HISTORY_HOURS = 24
 
@@ -72,6 +86,7 @@ def build_snapshot(
     progress_dir: Optional[str] = None,
     stale_seconds: int = progress_mod.DEFAULT_STALE_SECONDS,
     enable_log_fallback: bool = True,
+    log_fallback_limit: int = MAX_LOG_FALLBACK_JOBS,
     enable_sstat: bool = True,
     timeout: float = 15.0,
 ) -> Dict[str, Any]:
@@ -123,7 +138,8 @@ def build_snapshot(
             job["progress"] = found
 
     if enable_log_fallback:
-        _apply_log_fallback(jobs, warnings)
+        _resolve_missing_log_paths(runner, jobs, limit=log_fallback_limit, timeout=timeout)
+        _apply_log_fallback(jobs, warnings, limit=log_fallback_limit)
 
     summary = _summarize(jobs)
     cluster = _cluster_info(runner)
@@ -194,7 +210,57 @@ def _fill_missing(live: Dict[str, Any], historical: Dict[str, Any]) -> None:
             live_res[key] = hist_res[key]
 
 
-def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) -> None:
+def _resolve_missing_log_paths(
+    runner: CommandRunner,
+    jobs: List[Dict[str, Any]],
+    limit: int = MAX_LOG_PATH_LOOKUPS,
+    timeout: float = 15.0,
+) -> None:
+    """Ask the controller for log paths that ``squeue`` could not report.
+
+    ``squeue -o`` has no format code for ``StdOut``/``StdErr``, so whenever ``--json`` is
+    unsupported, disabled or malformed the text fallback leaves both paths empty. That turned a
+    degraded queue transport into a silent loss of the whole log-progress feature: the README
+    promises progress bars for workloads that print ``Epoch 5/100`` and never mention that the
+    promise depends on the queue being readable as JSON.
+
+    The fix stays inside the same bound the rest of the snapshot keeps. Only live jobs that are
+    actually candidates for a log read are resolved, newest first and capped by
+    ``MAX_LOG_PATH_LOOKUPS``, so a queue of any size costs a fixed, small number of targeted
+    single-job RPCs — never a per-job loop, and nothing at all on clusters where ``squeue``
+    already answers with paths.
+    """
+    budget = min(max(0, limit), MAX_LOG_PATH_LOOKUPS)
+    if budget <= 0:
+        return
+
+    unresolved = [
+        job
+        for job in jobs
+        if job["state"] in (STATE_RUNNING, STATE_COMPLETING)
+        and job.get("progress") is None
+        and not _log_stream_paths(job)
+        and is_valid_job_id(job["job_id"])
+    ]
+    if not unresolved or runner.which("scontrol") is None:
+        return
+
+    unresolved.sort(key=_live_candidate_order, reverse=True)
+    for job in unresolved[:budget]:
+        fields = scontrol.show_job(runner, job["job_id"], timeout=timeout)
+        if not fields:
+            continue
+        paths = scontrol.log_paths(fields)
+        for key in ("stdout_path", "stderr_path", "work_dir"):
+            if job.get(key) is None and paths.get(key):
+                job[key] = paths[key]
+
+
+def _apply_log_fallback(
+    jobs: List[Dict[str, Any]],
+    warnings: WarningCollector,
+    limit: int = MAX_LOG_FALLBACK_JOBS,
+) -> None:
     """Sniff the tail of the log for jobs that have no structured progress.
 
     Two groups are read, under separate budgets:
@@ -210,26 +276,57 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
     The finished group is capped tightly and sorted newest-first: a day of accounting history
     can hold hundreds of jobs, and reading every one of their logs on every poll is not a
     trade worth making for output nobody is looking at.
+
+    Both reported streams are inspected, not just stdout. tqdm — the most widely deployed
+    progress bar in the ecosystem this tool exists for — writes to stderr by default, so a
+    stdout-only fallback misses the single most common case it was built to catch.
+
+    Neither budget is applied to whatever order the queue happened to arrive in. That made the
+    set of jobs that got a bar an accident of upstream ordering, and — because the agent is
+    one-shot and stateless, so every poll makes the same choice — the same jobs were skipped
+    every time, with nothing in the payload saying so. Live candidates are ranked newest-started
+    first, which is both stable and the order a user would pick: the run submitted five minutes
+    ago is the one being watched. Anything past the budget is reported as skipped rather than
+    silently dropped, and the budget itself is adjustable.
     """
     live_states = (STATE_RUNNING, STATE_COMPLETING)
+    limit = max(0, limit)
     candidates = [
         job
         for job in jobs
-        if job["state"] in live_states and job.get("progress") is None and job.get("stdout_path")
+        if job["state"] in live_states and job.get("progress") is None and _log_stream_paths(job)
     ]
+    candidates.sort(key=_live_candidate_order, reverse=True)
+    skipped = max(0, len(candidates) - limit)
+    if skipped:
+        warnings.add(
+            W.LOG_PROGRESS_BUDGET_EXCEEDED,
+            f"Log-derived progress was skipped for {skipped} running job(s).",
+            severity="info",
+            detail=(
+                f"At most {limit} running job(s) have their logs read per refresh, so the number "
+                "of filesystem reads does not grow with the size of the queue. The most recently "
+                "started jobs are read first; --log-fallback-limit raises the cap. Jobs using the "
+                "slurmbar_progress SDK are unaffected."
+            ),
+        )
     finished = [
         job
         for job in jobs
         if job["state"] not in live_states
         and job["state"] != STATE_PENDING
         and job.get("progress") is None
-        and job.get("stdout_path")
+        and _log_stream_paths(job)
     ]
-    finished.sort(key=lambda job: job.get("end_time") or "", reverse=True)
-    candidates = candidates[:MAX_LOG_FALLBACK_JOBS] + finished[:MAX_FINISHED_LOG_FALLBACK_JOBS]
+    finished.sort(key=lambda job: (job.get("end_time") or "", job["job_id"]), reverse=True)
+    candidates = candidates[:limit] + finished[:MAX_FINISHED_LOG_FALLBACK_JOBS]
 
     missing_path = [
-        job for job in jobs if job["state"] == STATE_RUNNING and job.get("progress") is None and not job.get("stdout_path")
+        job
+        for job in jobs
+        if job["state"] == STATE_RUNNING
+        and job.get("progress") is None
+        and not _log_stream_paths(job)
     ]
     if missing_path:
         warnings.add(
@@ -243,26 +340,85 @@ def _apply_log_fallback(jobs: List[Dict[str, Any]], warnings: WarningCollector) 
         )
 
     for job in candidates:
-        tail = logtail.read_tail(
-            job["stdout_path"],
-            max_lines=LOG_FALLBACK_LINES,
-            window_bytes=LOG_FALLBACK_WINDOW_BYTES,
-        )
-        if not tail.ok:
-            if tail.error_kind == "permission":
-                warnings.add(
-                    W.LOG_UNREADABLE,
-                    f"Permission denied reading the log for job {job['job_id']}.",
-                    severity="info",
-                    detail=tail.path,
-                    job_id=job["job_id"],
-                )
+        best_rank: Optional[tuple] = None
+        best_progress: Optional[Dict[str, Any]] = None
+        denied: Optional[str] = None
+
+        # stdout first, so it wins a tie; index breaks ties in favour of the earlier stream.
+        for index, path in enumerate(_log_stream_paths(job)):
+            tail = logtail.read_tail(
+                path,
+                max_lines=LOG_FALLBACK_LINES,
+                window_bytes=LOG_FALLBACK_WINDOW_BYTES,
+            )
+            if not tail.ok:
+                if tail.error_kind == "permission" and denied is None:
+                    denied = tail.path
+                continue
+            parsed = parse_log_lines(tail.lines)
+            if parsed is None:
+                continue
+            rank = (
+                _CONFIDENCE_RANK.get(parsed.confidence, 0),
+                tail.modified_at or 0.0,
+                -index,
+            )
+            if best_rank is None or rank > best_rank:
+                best_rank = rank
+                best_progress = parsed.to_progress_json(iso_utc(_from_epoch(tail.modified_at)))
+
+        if best_progress is not None:
+            job["progress"] = best_progress
+        elif denied is not None:
+            # Only worth reporting when it actually cost the user a progress bar: a job whose
+            # stderr is unreadable but whose stdout parsed fine has lost nothing.
+            warnings.add(
+                W.LOG_UNREADABLE,
+                f"Permission denied reading the log for job {job['job_id']}.",
+                severity="info",
+                detail=denied,
+                job_id=job["job_id"],
+            )
+
+
+def _live_candidate_order(job: Dict[str, Any]) -> tuple:
+    """Rank for the bounded live-log budget: newest start first, then job id.
+
+    Both keys come from the job itself, so the same queue always produces the same selection —
+    unlike the arrival order it replaced, which shuffled with anything that reordered ``squeue``.
+    A running job with no reported start time sorts last: it is the least likely to be the run
+    the user just launched and is watching.
+    """
+    return (job.get("start_time") or "", _job_id_sort_key(job["job_id"]))
+
+
+def _job_id_sort_key(job_id: str) -> tuple:
+    """Numeric where possible, so 1000 sorts after 999 rather than before it."""
+    head, sep, tail = job_id.partition("_")
+    if head.isdigit():
+        return (1, int(head), int(tail) if sep and tail.isdigit() else 0, job_id)
+    return (0, 0, 0, job_id)
+
+
+def _log_stream_paths(job: Dict[str, Any]) -> List[str]:
+    """The distinct log paths reported for a job, stdout first.
+
+    Slurm reports the same file for both streams whenever a batch script was submitted without
+    ``--error``, which is the common case; reading it twice would double the I/O budget for no
+    new information.
+    """
+    paths: List[str] = []
+    seen = set()
+    for key in ("stdout_path", "stderr_path"):
+        path = job.get(key)
+        if not path:
             continue
-        parsed = parse_log_lines(tail.lines)
-        if parsed is None:
+        normalized = os.path.normpath(path)
+        if normalized in seen:
             continue
-        updated_at = iso_utc(_from_epoch(tail.modified_at))
-        job["progress"] = parsed.to_progress_json(updated_at)
+        seen.add(normalized)
+        paths.append(path)
+    return paths
 
 
 def _from_epoch(epoch: Optional[float]):

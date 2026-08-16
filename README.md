@@ -692,7 +692,9 @@ app cannot display invented jobs.
 - **Log paths for finished jobs** are often unavailable — Slurm only reports `StdOut` while the
   job is still known to the controller, and `sacct` does not record it.
 - **`squeue -o` cannot report log paths**, so on clusters without `squeue --json` the log-parser
-  fallback is unavailable during polling (opening a job still resolves paths via `scontrol`).
+  fallback covers only the few most recently started running jobs per poll — their paths are
+  resolved with a small, fixed number of `scontrol show job` calls rather than one per job.
+  Opening a job always resolves its paths.
 - **GPU memory and utilization** appear only if your site's accounting records them. Most don't.
 - **Multi-node memory is not aggregated.** `MaxRSS` is per step; the protocol says so explicitly
   rather than summing values that aren't summable.

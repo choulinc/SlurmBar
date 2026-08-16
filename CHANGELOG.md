@@ -2,6 +2,31 @@
 
 Notable changes per release. Dates are the release date, not the last commit.
 
+## Unreleased
+
+### Fixed — the log-progress fallback missed most of what it was built to catch
+
+- **Progress written to stderr was never seen.** The fallback only ever read `stdout_path`, so
+  tqdm — which writes to stderr by default — never produced a bar, and a job whose stdout path
+  was unknown got nothing at all. Both streams are read now, deduplicated when Slurm reports one
+  file for both, with the more confident reading winning.
+- **Jobs past the 12-job read budget were skipped silently, and always the same ones.** The cap
+  applied to whatever order `squeue` returned; because the agent is stateless, every poll made
+  the same choice and starved the same jobs indefinitely. Selection is now newest-started first,
+  overflow raises `LOG_PROGRESS_BUDGET_EXCEEDED` with a count, and `--log-fallback-limit` adjusts
+  the cap.
+- **Clusters without `squeue --json` lost log progress entirely.** The text fallback cannot
+  report log paths, so nothing could be read. Paths are now resolved from the controller for the
+  handful of jobs that are candidates for a read, at a fixed cost per refresh.
+
+### Fixed — security
+
+- **Several remote strings reached the UI unsanitized**, contrary to `docs/security.md`: `user`,
+  `account`, `partition`, `qos`, `state_raw`, node names, the progress `kind`, metric names and
+  string metric values, and displayed paths. All are cleaned and bounded at decode time. Paths
+  keep an exact stored value for locating logs and gain a sanitized display form; the copied
+  `tail -f` snippet is shell-quoted.
+
 ## 0.2.3 — 2026-07-24
 
 - **Rows drawn as live jobs under a "Completed" header.** A row's layout came from whichever

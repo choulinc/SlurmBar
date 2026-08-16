@@ -556,6 +556,7 @@
             "PROGRESS_STALE",
             "LOG_PATH_UNKNOWN",
             "LOG_UNREADABLE",
+            "LOG_PROGRESS_BUDGET_EXCEEDED",
             "COMMAND_TIMEOUT",
             "COMMAND_FAILED",
             "PARTIAL_DATA"

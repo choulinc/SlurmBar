@@ -174,14 +174,18 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
         slurmJobID = try container.decodeIfPresent(String.self, forKey: .slurmJobID)
         arrayJobID = try container.decodeIfPresent(String.self, forKey: .arrayJobID)
         arrayTaskID = try container.decodeIfPresent(String.self, forKey: .arrayTaskID)
-        // Names come from a remote machine and land in the UI, so they are sanitized on entry.
+        // Every one of these comes from a remote machine and lands in the UI, so it is
+        // sanitized and bounded on entry. Slurm's own values are short and boring, but nothing
+        // here is guaranteed to have come from Slurm: the agent is a program on a machine the
+        // app does not control, and `state_raw`, `qos` and friends are as forgeable as a job
+        // name. The limits are generous next to real values and tight next to a layout attack.
         name = SanitizedText.clean(try container.decode(String.self, forKey: .name), limit: 200)
-        user = try container.decodeIfPresent(String.self, forKey: .user)
-        account = try container.decodeIfPresent(String.self, forKey: .account)
-        partition = try container.decodeIfPresent(String.self, forKey: .partition)
-        qos = try container.decodeIfPresent(String.self, forKey: .qos)
+        user = try container.decodeIfPresent(String.self, forKey: .user).map { SanitizedText.clean($0, limit: 80) }
+        account = try container.decodeIfPresent(String.self, forKey: .account).map { SanitizedText.clean($0, limit: 80) }
+        partition = try container.decodeIfPresent(String.self, forKey: .partition).map { SanitizedText.clean($0, limit: 80) }
+        qos = try container.decodeIfPresent(String.self, forKey: .qos).map { SanitizedText.clean($0, limit: 80) }
         state = try container.decode(JobState.self, forKey: .state)
-        stateRaw = try container.decodeIfPresent(String.self, forKey: .stateRaw)
+        stateRaw = try container.decodeIfPresent(String.self, forKey: .stateRaw).map { SanitizedText.clean($0, limit: 60) }
         reason = try container.decodeIfPresent(String.self, forKey: .reason).map {
             SanitizedText.clean($0, limit: 200)
         }
@@ -190,10 +194,15 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
         endTime = try container.decodeIfPresent(Date.self, forKey: .endTime)
         elapsedSeconds = try container.decodeIfPresent(Int.self, forKey: .elapsedSeconds)
         timeLimitSeconds = try container.decodeIfPresent(Int.self, forKey: .timeLimitSeconds)
-        nodes = try container.decodeIfPresent([String].self, forKey: .nodes) ?? []
+        nodes = (try container.decodeIfPresent([String].self, forKey: .nodes) ?? []).map {
+            SanitizedText.clean($0, limit: 80)
+        }
         nodeCount = try container.decodeIfPresent(Int.self, forKey: .nodeCount)
         cpus = try container.decodeIfPresent(Int.self, forKey: .cpus)
         gpus = try container.decodeIfPresent(Int.self, forKey: .gpus)
+        // Paths are kept byte-exact: they are sent back to the agent to locate a log file, and a
+        // sanitized path is a different path. Use ``workDirDisplay`` / ``stdoutPathDisplay`` /
+        // ``stderrPathDisplay`` for anything a user reads.
         workDir = try container.decodeIfPresent(String.self, forKey: .workDir)
         stdoutPath = try container.decodeIfPresent(String.self, forKey: .stdoutPath)
         stderrPath = try container.decodeIfPresent(String.self, forKey: .stderrPath)
@@ -268,6 +277,20 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
 
     /// True when the job is an array task rather than a standalone job.
     public var isArrayTask: Bool { arrayTaskID != nil }
+
+    /// The working directory, safe to render.
+    ///
+    /// A path is the one remote string the app cannot sanitize in place: it is handed back to
+    /// the agent to find a file, so a single stripped character turns it into a path that does
+    /// not exist. The stored value therefore stays exact and the display form is derived — the
+    /// operational value and the readable one are simply not the same string.
+    public var workDirDisplay: String? { workDir.map { SanitizedText.clean($0, limit: 300) } }
+
+    /// The stdout path, safe to render. See ``workDirDisplay``.
+    public var stdoutPathDisplay: String? { stdoutPath.map { SanitizedText.clean($0, limit: 300) } }
+
+    /// The stderr path, safe to render. See ``workDirDisplay``.
+    public var stderrPathDisplay: String? { stderrPath.map { SanitizedText.clean($0, limit: 300) } }
 
     /// Fraction of the time limit consumed, or nil when there is no limit.
     public var timeLimitFraction: Double? {
@@ -517,7 +540,8 @@ public struct JobProgress: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         source = try container.decode(ProgressSource.self, forKey: .source)
         confidence = try container.decodeIfPresent(ProgressConfidence.self, forKey: .confidence)
-        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        // Shown as "Workload" in the job detail view, so it is remote text like any other.
+        kind = try container.decodeIfPresent(String.self, forKey: .kind).map { SanitizedText.clean($0, limit: 60) }
         phase = try container.decodeIfPresent(String.self, forKey: .phase).map { SanitizedText.clean($0, limit: 60) }
         current = try container.decodeIfPresent(Double.self, forKey: .current)
         total = try container.decodeIfPresent(Double.self, forKey: .total)
@@ -530,7 +554,9 @@ public struct JobProgress: Codable, Hashable, Sendable {
         etaSeconds = try container.decodeIfPresent(Int.self, forKey: .etaSeconds)
         completion = try container.decodeIfPresent(ProgressCompletion.self, forKey: .completion)
         error = try container.decodeIfPresent(String.self, forKey: .error).map { SanitizedText.clean($0, limit: 500) }
-        metrics = try container.decodeIfPresent([String: MetricValue].self, forKey: .metrics) ?? [:]
+        metrics = JobProgress.sanitizedMetricNames(
+            try container.decodeIfPresent([String: MetricValue].self, forKey: .metrics) ?? [:]
+        )
         carriedForward = try container.decodeIfPresent(Bool.self, forKey: .carriedForward) ?? false
     }
 
@@ -570,6 +596,25 @@ public struct JobProgress: Codable, Hashable, Sendable {
         self.error = error
         self.metrics = metrics
         self.carriedForward = carriedForward
+    }
+
+    /// Metric names, cleaned for display.
+    ///
+    /// Names are chosen by the workload — the app is not the one that decides a metric is called
+    /// `loss` — so they are remote text and reach the UI as row labels. Two different raw names
+    /// can clean to the same name (`"lo\u{202E}ss"` and `"loss"`), and a Swift dictionary has no
+    /// order, so resolving that by "last one wins" would pick a different metric on different
+    /// runs of the same payload. The lexicographically first raw name wins instead, and names
+    /// that clean away to nothing are dropped rather than shown as a blank label.
+    static func sanitizedMetricNames(_ raw: [String: MetricValue]) -> [String: MetricValue] {
+        var cleaned: [String: MetricValue] = [:]
+        cleaned.reserveCapacity(raw.count)
+        for name in raw.keys.sorted() {
+            let display = SanitizedText.clean(name, limit: 60)
+            guard !display.isEmpty, cleaned[display] == nil else { continue }
+            cleaned[display] = raw[name]
+        }
+        return cleaned
     }
 
     /// This reading, marked as remembered rather than measured.

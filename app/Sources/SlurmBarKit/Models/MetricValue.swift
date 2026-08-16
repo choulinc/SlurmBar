@@ -21,7 +21,9 @@ public enum MetricValue: Codable, Hashable, Sendable {
         } else if let value = try? container.decode(Double.self) {
             self = .number(value)
         } else if let value = try? container.decode(String.self) {
-            self = .string(value)
+            // Cleaned here rather than only at display time, so no future reader of a metric
+            // has to remember that this one string arrived from a remote machine.
+            self = .string(SanitizedText.clean(value, limit: 200))
         } else {
             self = .null
         }
