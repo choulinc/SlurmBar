@@ -154,9 +154,15 @@ struct JobDetailView: View {
             .buttonStyle(.borderless)
 
             Menu {
-                Button("scancel \(job.jobID)") { copy("scancel \(job.jobID)", label: "Copied") }
-                Button("sacct -j \(job.jobID) --long") { copy("sacct -j \(job.jobID) --long", label: "Copied") }
-                Button("scontrol show job \(job.jobID)") { copy("scontrol show job \(job.jobID)", label: "Copied") }
+                Button("scancel \(job.jobID)") {
+                    copy("scancel \(ShellQuoting.quote(job.jobID))", label: "Copied")
+                }
+                Button("sacct -j \(job.jobID) --long") {
+                    copy("sacct -j \(ShellQuoting.quote(job.jobID)) --long", label: "Copied")
+                }
+                Button("scontrol show job \(job.jobID)") {
+                    copy("scontrol show job \(ShellQuoting.quote(job.jobID))", label: "Copied")
+                }
                 if let path = job.stdoutPath, let shown = job.stdoutPathDisplay {
                     // The menu shows the readable path; the clipboard gets the exact one, quoted,
                     // because this string is destined for a shell prompt.

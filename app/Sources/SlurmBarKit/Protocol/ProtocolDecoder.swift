@@ -90,8 +90,12 @@ public struct ProtocolDecoder: Sendable {
 
         if let errorBody = object["error"] as? [String: Any] {
             throw ProtocolError.agentError(
-                code: errorBody["code"] as? String ?? "AGENT_ERROR",
-                message: errorBody["message"] as? String ?? "The agent reported an error."
+                code: SanitizedText.clean(
+                    errorBody["code"] as? String ?? "AGENT_ERROR", limit: 80
+                ),
+                message: SanitizedText.clean(
+                    errorBody["message"] as? String ?? "The agent reported an error.", limit: 800
+                )
             )
         }
 

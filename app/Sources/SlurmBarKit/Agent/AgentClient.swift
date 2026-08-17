@@ -123,9 +123,10 @@ public struct AgentClient: Sendable {
            let payload = try? ProtocolDecoder.makeJSONDecoder()
                .decode(AgentErrorPayload.self, from: result.standardOutput)
         {
-            throw SSHFailure.protocolFailure(
-                .agentError(code: payload.error.code, message: payload.error.message)
-            )
+            throw SSHFailure.protocolFailure(.agentError(
+                code: SanitizedText.clean(payload.error.code, limit: 80),
+                message: SanitizedText.clean(payload.error.message, limit: 800)
+            ))
         }
 
         throw SSHErrorClassifier.classify(
@@ -174,10 +175,16 @@ public enum JobIDValidator {
                 message: "“\(SanitizedText.clean(value, limit: 40))” is not a valid job id."
             ))
         }
-        // digits, optionally followed by _digits for an array task. Nothing else.
+        // ASCII digits, optionally followed by _digits for an array task. Nothing else.
+        // Character.isNumber also accepts Unicode digits, while the Python agent deliberately
+        // accepts only [0-9], so spell the range out to keep both sides identical.
         let parts = trimmed.split(separator: "_", omittingEmptySubsequences: false)
         guard parts.count <= 2,
-              parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) })
+              parts.allSatisfy({ part in
+                  !part.isEmpty && part.count <= 18 && part.unicodeScalars.allSatisfy {
+                      (0x30...0x39).contains($0.value)
+                  }
+              })
         else {
             throw SSHFailure.protocolFailure(.agentError(
                 code: "INVALID_JOB_ID",

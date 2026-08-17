@@ -84,6 +84,8 @@ public struct ClusterProfile: Codable, Hashable, Identifiable, Sendable {
             errors.append("An SSH host or alias is required.")
         } else if sshAlias.contains(where: { $0.isWhitespace }) {
             errors.append("The SSH alias must not contain spaces.")
+        } else if sshAlias.hasPrefix("-") {
+            errors.append("The SSH alias must not begin with a dash.")
         }
         if agentCommand.isEmpty {
             errors.append("A remote agent command is required.")

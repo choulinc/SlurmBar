@@ -84,7 +84,10 @@ final class AgentClientTests: XCTestCase {
         let runner = StubRemoteRunner(responses: [.init()])
         let client = AgentClient(runner: runner, profile: profile())
 
-        for bad in ["201551; rm -rf ~", "$(id)", "../../etc/passwd", "abc"] {
+        for bad in [
+            "201551; rm -rf ~", "$(id)", "../../etc/passwd", "abc",
+            "１２３", "1234567890123456789",
+        ] {
             do {
                 _ = try await client.cancel(jobID: bad)
                 XCTFail("\(bad) should have been rejected")
@@ -130,6 +133,33 @@ final class AgentClientTests: XCTestCase {
             }
             XCTAssertEqual(code, "NOT_FOUND")
             XCTAssertTrue(message.contains("999999"))
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+    }
+
+    func testNonZeroExitWithStructuredErrorSanitizesAndBoundsRemoteText() async {
+        let code = "BAD\u{202E}CODE"
+        let message = "\u{1B}[31m" + String(repeating: "x", count: 5_000)
+        let payload = try! JSONSerialization.data(withJSONObject: [
+            "schema_version": 1,
+            "error": ["code": code, "message": message],
+        ])
+        let runner = StubRemoteRunner(responses: [
+            .init(exitCode: 4, stdout: payload)
+        ])
+
+        do {
+            _ = try await AgentClient(runner: runner, profile: profile()).snapshot()
+            XCTFail("expected a failure")
+        } catch let failure as SSHFailure {
+            guard case .protocolFailure(.agentError(let receivedCode, let receivedMessage)) = failure else {
+                return XCTFail("got \(failure)")
+            }
+            XCTAssertFalse(receivedCode.contains("\u{202E}"))
+            XCTAssertFalse(receivedMessage.contains("\u{1B}"))
+            XCTAssertLessThanOrEqual(receivedCode.count, 81)
+            XCTAssertLessThanOrEqual(receivedMessage.count, 801)
         } catch {
             XCTFail("unexpected \(error)")
         }
@@ -202,6 +232,12 @@ final class ClusterProfileTests: XCTestCase {
         let profile = ClusterProfile(sshAlias: "my cluster")
         XCTAssertFalse(profile.isValid)
         XCTAssertTrue(profile.validationErrors.contains { $0.contains("spaces") })
+    }
+
+    func testValidationRejectsAnAliasThatLooksLikeAnSSHOption() {
+        let profile = ClusterProfile(sshAlias: "-oProxyCommand=/tmp/evil")
+        XCTAssertFalse(profile.isValid)
+        XCTAssertTrue(profile.validationErrors.contains { $0.contains("dash") })
     }
 
     func testValidationRejectsAnAbsurdPollingInterval() {

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -102,31 +103,59 @@ def load_all(
 def _read_for_job(
     state_dir: str, job_id: str, warnings: WarningCollector
 ) -> Optional[ProgressRecord]:
+    root = os.path.realpath(state_dir)
     candidates: List[str] = [job_id]
     base = base_job_id(job_id)
     if base != job_id:
         candidates.append(base)
 
     for candidate in candidates:
-        path = os.path.join(state_dir, candidate, STATUS_FILENAME)
-        # Defence in depth: the candidate is validated digits, but confirm the resolved path
-        # still lives under the configured directory before opening it.
-        if not _is_inside(state_dir, path):
-            continue
-        if not os.path.isfile(path):
-            continue
+        job_dir = os.path.join(root, candidate)
+        path = os.path.join(job_dir, STATUS_FILENAME)
+        directory_fd: Optional[int] = None
+        status_fd: Optional[int] = None
         try:
-            size = os.path.getsize(path)
-            if size > MAX_STATUS_BYTES:
+            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+            directory_fd = os.open(job_dir, directory_flags)
+
+            status_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            status_fd = os.open(STATUS_FILENAME, status_flags, dir_fd=directory_fd)
+            metadata = os.fstat(status_fd)
+            if not stat.S_ISREG(metadata.st_mode):
                 warnings.add(
                     W.PROGRESS_FILE_INVALID,
-                    f"Progress file for job {job_id} is unexpectedly large and was ignored.",
-                    detail=f"{path} is {size} bytes (limit {MAX_STATUS_BYTES}).",
+                    f"Progress path for job {job_id} is not a regular file.",
+                    detail=path,
                     job_id=job_id,
                 )
                 return None
-            with open(path, "r", encoding="utf-8", errors="replace") as handle:
-                payload = json.load(handle)
+            if metadata.st_size > MAX_STATUS_BYTES:
+                warnings.add(
+                    W.PROGRESS_FILE_INVALID,
+                    f"Progress file for job {job_id} is unexpectedly large and was ignored.",
+                    detail=f"{path} is {metadata.st_size} bytes (limit {MAX_STATUS_BYTES}).",
+                    job_id=job_id,
+                )
+                return None
+
+            raw = bytearray()
+            while len(raw) <= MAX_STATUS_BYTES:
+                chunk = os.read(status_fd, min(64 * 1024, MAX_STATUS_BYTES + 1 - len(raw)))
+                if not chunk:
+                    break
+                raw.extend(chunk)
+            if len(raw) > MAX_STATUS_BYTES:
+                warnings.add(
+                    W.PROGRESS_FILE_INVALID,
+                    f"Progress file for job {job_id} grew beyond the size limit and was ignored.",
+                    detail=f"{path} exceeds {MAX_STATUS_BYTES} bytes.",
+                    job_id=job_id,
+                )
+                return None
+            payload = json.loads(bytes(raw).decode("utf-8", errors="replace"))
+        except FileNotFoundError:
+            continue
         except json.JSONDecodeError as exc:
             # A torn read is possible in theory; the writer renames atomically, so this
             # usually means a hand-edited or foreign file.
@@ -153,6 +182,17 @@ def _read_for_job(
                 job_id=job_id,
             )
             return None
+        finally:
+            if status_fd is not None:
+                try:
+                    os.close(status_fd)
+                except OSError:
+                    pass
+            if directory_fd is not None:
+                try:
+                    os.close(directory_fd)
+                except OSError:
+                    pass
 
         if not isinstance(payload, dict):
             warnings.add(
@@ -174,14 +214,6 @@ def _read_for_job(
 
         return ProgressRecord(job_id=job_id, payload=payload, path=path)
     return None
-
-
-def _is_inside(directory: str, path: str) -> bool:
-    root = os.path.realpath(directory)
-    target = os.path.realpath(os.path.dirname(path))
-    return target == root or target.startswith(root + os.sep)
-
-
 def _normalize(
     payload: Dict[str, Any], stale_seconds: int, now: datetime
 ) -> Optional[Dict[str, Any]]:

@@ -34,6 +34,10 @@ Examples:
 USAGE
     exit 2
 fi
+if [[ "$ALIAS" == -* || "$ALIAS" =~ [[:space:][:cntrl:]] ]]; then
+    echo "error: SSH alias must not start with '-' or contain whitespace/control characters." >&2
+    exit 2
+fi
 shift
 
 REMOTE_PYTHON="python3"
@@ -43,6 +47,13 @@ while [[ $# -gt 0 ]]; do
         *) echo "error: unknown option $1" >&2; exit 2 ;;
     esac
 done
+
+# This value is interpolated into commands parsed by the remote login shell and into the
+# launcher. Accept a program name or path, not shell syntax.
+if [[ "$REMOTE_PYTHON" == -* || ! "$REMOTE_PYTHON" =~ ^[A-Za-z0-9_./+~:-]+$ ]]; then
+    echo "error: --python must be a program name or path without shell metacharacters." >&2
+    exit 2
+fi
 
 REMOTE_DIR='$HOME/.local/share/slurmbar'
 REMOTE_BIN='$HOME/.local/bin'
@@ -57,10 +68,14 @@ echo "==> Building the agent"
 echo "    $LOCAL_PYZ"
 
 echo "==> Checking SSH access to $ALIAS"
-if ! ssh "${SSH_OPTS[@]}" "$ALIAS" true 2>/tmp/slurmbar-ssh-check.$$; then
+SSH_CHECK_LOG="$(mktemp "${TMPDIR:-/tmp}/slurmbar-ssh-check.XXXXXX")"
+cleanup_ssh_check() {
+    rm -f "$SSH_CHECK_LOG"
+}
+trap cleanup_ssh_check EXIT
+if ! ssh "${SSH_OPTS[@]}" "$ALIAS" true 2>"$SSH_CHECK_LOG"; then
     echo "error: cannot connect to '$ALIAS' without a prompt." >&2
-    sed 's/^/    /' /tmp/slurmbar-ssh-check.$$ >&2 || true
-    rm -f /tmp/slurmbar-ssh-check.$$
+    sed 's/^/    /' "$SSH_CHECK_LOG" >&2 || true
     cat >&2 <<'HINT'
 
     SlurmBar uses your existing OpenSSH setup and never prompts for a password.
@@ -71,7 +86,7 @@ if ! ssh "${SSH_OPTS[@]}" "$ALIAS" true 2>/tmp/slurmbar-ssh-check.$$; then
 HINT
     exit 1
 fi
-rm -f /tmp/slurmbar-ssh-check.$$
+rm -f "$SSH_CHECK_LOG"
 
 echo "==> Checking remote Python"
 if ! REMOTE_PY_VERSION="$(ssh "${SSH_OPTS[@]}" "$ALIAS" "command -v $REMOTE_PYTHON >/dev/null && $REMOTE_PYTHON -c 'import sys; print(\".\".join(map(str, sys.version_info[:3])))'" 2>/dev/null)"; then

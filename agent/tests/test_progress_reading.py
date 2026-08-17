@@ -148,6 +148,35 @@ def test_oversized_status_file_is_ignored(tmp_path: Path, warnings):
     assert "PROGRESS_FILE_INVALID" in [w.code for w in warnings.items]
 
 
+def test_status_file_symlink_is_never_followed(tmp_path: Path, warnings):
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({
+        "schema_version": 1,
+        "kind": "secret",
+        "current": 1,
+        "total": 1,
+        "updated_at": "2026-07-22T02:29:55Z",
+    }))
+    directory = tmp_path / "state" / "201551"
+    directory.mkdir(parents=True)
+    (directory / "status.json").symlink_to(outside)
+
+    found = load_all(str(tmp_path / "state"), ["201551"], warnings, now=NOW)
+
+    assert found == {}
+    assert "PROGRESS_FILE_INVALID" in [w.code for w in warnings.items]
+
+
+def test_job_directory_symlink_is_never_followed(tmp_path: Path, warnings):
+    outside = tmp_path / "outside"
+    write_status(outside, "201551")
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "201551").symlink_to(outside / "201551", target_is_directory=True)
+
+    assert load_all(str(state), ["201551"], warnings, now=NOW) == {}
+
+
 def test_invalid_job_ids_never_touch_the_filesystem(tmp_path: Path, warnings):
     write_status(tmp_path, "201551")
     assert load_all(str(tmp_path), ["../../etc", "201551; rm -rf /"], warnings, now=NOW) == {}

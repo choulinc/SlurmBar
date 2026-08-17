@@ -14,6 +14,10 @@ if [[ -z "$ALIAS" ]]; then
     echo "usage: ./scripts/uninstall-agent.sh <ssh-alias> [--purge-progress]" >&2
     exit 2
 fi
+if [[ "$ALIAS" == -* || "$ALIAS" =~ [[:space:][:cntrl:]] ]]; then
+    echo "error: SSH alias must not start with '-' or contain whitespace/control characters." >&2
+    exit 2
+fi
 shift
 
 PURGE_PROGRESS=0
