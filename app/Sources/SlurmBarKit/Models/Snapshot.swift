@@ -17,6 +17,19 @@ public struct Snapshot: Codable, Hashable, Sendable {
         case cluster, summary, jobs, warnings
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        generatedAt = try container.decode(Date.self, forKey: .generatedAt)
+        agentVersion = try container.decodeIfPresent(String.self, forKey: .agentVersion).map {
+            SanitizedText.clean($0, limit: 80)
+        }
+        cluster = try container.decode(ClusterInfo.self, forKey: .cluster)
+        summary = try container.decode(JobSummary.self, forKey: .summary)
+        jobs = try container.decode([Job].self, forKey: .jobs)
+        warnings = try container.decodeIfPresent([AgentWarning].self, forKey: .warnings) ?? []
+    }
+
     public init(
         schemaVersion: Int,
         generatedAt: Date,
@@ -49,6 +62,19 @@ public struct ClusterInfo: Codable, Hashable, Sendable {
         case slurmVersion = "slurm_version"
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name).map {
+            SanitizedText.clean($0, limit: 120)
+        }
+        hostname = try container.decodeIfPresent(String.self, forKey: .hostname).map {
+            SanitizedText.clean($0, limit: 255)
+        }
+        slurmVersion = try container.decodeIfPresent(String.self, forKey: .slurmVersion).map {
+            SanitizedText.clean($0, limit: 80)
+        }
+    }
+
     public init(name: String?, hostname: String?, slurmVersion: String?) {
         self.name = name
         self.hostname = hostname
@@ -57,6 +83,8 @@ public struct ClusterInfo: Codable, Hashable, Sendable {
 }
 
 public struct JobSummary: Codable, Hashable, Sendable {
+    private static let maximumCount = 1_000_000
+
     public let running: Int
     public let pending: Int
     public let completing: Int
@@ -76,14 +104,20 @@ public struct JobSummary: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        running = try container.decode(Int.self, forKey: .running)
-        pending = try container.decode(Int.self, forKey: .pending)
-        completing = try container.decode(Int.self, forKey: .completing)
-        failedRecently = try container.decode(Int.self, forKey: .failedRecently)
+        running = Self.bounded(try container.decode(Int.self, forKey: .running))
+        pending = Self.bounded(try container.decode(Int.self, forKey: .pending))
+        completing = Self.bounded(try container.decode(Int.self, forKey: .completing))
+        failedRecently = Self.bounded(try container.decode(Int.self, forKey: .failedRecently))
         // Absent from agents older than this field. Zero is the honest default: an old agent
         // did not tell us, and inventing a number would be worse than showing none.
-        cancelledRecently = try container.decodeIfPresent(Int.self, forKey: .cancelledRecently) ?? 0
-        completedRecently = try container.decode(Int.self, forKey: .completedRecently)
+        cancelledRecently = Self.bounded(
+            try container.decodeIfPresent(Int.self, forKey: .cancelledRecently) ?? 0
+        )
+        completedRecently = Self.bounded(try container.decode(Int.self, forKey: .completedRecently))
+    }
+
+    private static func bounded(_ value: Int) -> Int {
+        min(max(0, value), maximumCount)
     }
 
     public init(
@@ -170,10 +204,24 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        jobID = try container.decode(String.self, forKey: .jobID)
-        slurmJobID = try container.decodeIfPresent(String.self, forKey: .slurmJobID)
-        arrayJobID = try container.decodeIfPresent(String.self, forKey: .arrayJobID)
-        arrayTaskID = try container.decodeIfPresent(String.self, forKey: .arrayTaskID)
+        let decodedJobID = try container.decode(String.self, forKey: .jobID)
+        guard JobIDValidator.isValid(decodedJobID) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .jobID,
+                in: container,
+                debugDescription: "Expected an ASCII Slurm job id, got \(SanitizedText.clean(decodedJobID, limit: 40))"
+            )
+        }
+        jobID = decodedJobID
+        slurmJobID = try container.decodeIfPresent(String.self, forKey: .slurmJobID).flatMap {
+            JobIDValidator.isValid($0) ? $0 : nil
+        }
+        arrayJobID = try container.decodeIfPresent(String.self, forKey: .arrayJobID).flatMap {
+            JobIDValidator.isValid($0) && !$0.contains("_") ? $0 : nil
+        }
+        arrayTaskID = try container.decodeIfPresent(String.self, forKey: .arrayTaskID).flatMap {
+            JobIDValidator.isValid($0) && !$0.contains("_") ? $0 : nil
+        }
         // Every one of these comes from a remote machine and lands in the UI, so it is
         // sanitized and bounded on entry. Slurm's own values are short and boring, but nothing
         // here is guaranteed to have come from Slurm: the agent is a program on a machine the
@@ -192,8 +240,12 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
         submitTime = try container.decodeIfPresent(Date.self, forKey: .submitTime)
         startTime = try container.decodeIfPresent(Date.self, forKey: .startTime)
         endTime = try container.decodeIfPresent(Date.self, forKey: .endTime)
-        elapsedSeconds = try container.decodeIfPresent(Int.self, forKey: .elapsedSeconds)
-        timeLimitSeconds = try container.decodeIfPresent(Int.self, forKey: .timeLimitSeconds)
+        elapsedSeconds = try container.decodeIfPresent(Int.self, forKey: .elapsedSeconds).flatMap {
+            $0 >= 0 ? $0 : nil
+        }
+        timeLimitSeconds = try container.decodeIfPresent(Int.self, forKey: .timeLimitSeconds).flatMap {
+            $0 >= 0 ? $0 : nil
+        }
         nodes = (try container.decodeIfPresent([String].self, forKey: .nodes) ?? []).map {
             SanitizedText.clean($0, limit: 80)
         }
@@ -300,8 +352,12 @@ public struct Job: Codable, Hashable, Identifiable, Sendable {
 
     /// Seconds remaining before Slurm kills the job, when a limit exists.
     public var remainingTimeSeconds: Int? {
-        guard let limit = timeLimitSeconds, let elapsed = elapsedSeconds else { return nil }
-        return max(0, limit - elapsed)
+        guard let limit = timeLimitSeconds, limit >= 0,
+              let elapsed = elapsedSeconds, elapsed >= 0
+        else { return nil }
+        let (remaining, overflow) = limit.subtractingReportingOverflow(elapsed)
+        guard !overflow else { return nil }
+        return max(0, remaining)
     }
 
     /// A one-line resource summary such as "32 CPU · 1 GPU · 2 nodes".
@@ -716,13 +772,15 @@ public struct AgentWarning: Codable, Hashable, Identifiable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        code = try container.decode(String.self, forKey: .code)
+        code = SanitizedText.clean(try container.decode(String.self, forKey: .code), limit: 80)
         message = SanitizedText.clean(try container.decode(String.self, forKey: .message), limit: 400)
         severity = try container.decodeIfPresent(Severity.self, forKey: .severity) ?? .warning
         detail = try container.decodeIfPresent(String.self, forKey: .detail).map {
             SanitizedText.clean($0, limit: 800)
         }
-        jobID = try container.decodeIfPresent(String.self, forKey: .jobID)
+        jobID = try container.decodeIfPresent(String.self, forKey: .jobID).flatMap {
+            JobIDValidator.isValid($0) ? $0 : nil
+        }
     }
 
     public init(code: String, message: String, severity: Severity = .warning, detail: String? = nil, jobID: String? = nil) {

@@ -12,14 +12,18 @@ Two invariants:
 from __future__ import annotations
 
 import os
+import selectors
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Mapping, Optional, Protocol, Sequence
+from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 DEFAULT_TIMEOUT = 20.0
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
+POST_EXIT_GRACE_SECONDS = 0.25
+_TRUNCATION_MARKER = b"\n[slurmbar: output truncated]\n"
 
 
 @dataclass(frozen=True)
@@ -57,14 +61,15 @@ class CommandRunner(Protocol):
     def which(self, program: str) -> Optional[str]: ...
 
 
-def _truncate(text: str, limit: int = MAX_OUTPUT_BYTES) -> str:
-    if len(text) <= limit:
-        return text
-    return text[:limit] + "\n[slurmbar: output truncated]\n"
+def _decode_captured(raw: bytes, truncated: bool = False) -> str:
+    if truncated:
+        room = max(0, MAX_OUTPUT_BYTES - len(_TRUNCATION_MARKER))
+        raw = raw[:room] + _TRUNCATION_MARKER
+    return raw.decode("utf-8", errors="replace")
 
 
 class SubprocessRunner:
-    """Real runner. Uses ``subprocess.run`` with an explicit timeout and no shell."""
+    """Real runner. Uses ``Popen`` with bounded output, an explicit timeout, and no shell."""
 
     def __init__(self, default_timeout: float = DEFAULT_TIMEOUT) -> None:
         self.default_timeout = default_timeout
@@ -90,12 +95,12 @@ class SubprocessRunner:
         merged_env.setdefault("SLURM_TIME_FORMAT", "standard")
         merged_env["LC_ALL"] = "C"
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 argv,
-                capture_output=True,
-                timeout=timeout if timeout is not None else self.default_timeout,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 env=merged_env,
-                check=False,
             )
         except FileNotFoundError:
             return CommandResult(
@@ -103,25 +108,175 @@ class SubprocessRunner:
             )
         except PermissionError as exc:
             return CommandResult(argv, 126, "", str(exc), time.monotonic() - started)
-        except subprocess.TimeoutExpired as exc:
-            partial_out = _decode(exc.stdout)
-            partial_err = _decode(exc.stderr)
-            return CommandResult(
-                argv, 124, partial_out, partial_err, time.monotonic() - started, timed_out=True
-            )
+
+        effective_timeout = timeout if timeout is not None else self.default_timeout
+        stdout, stderr, returncode, timed_out, stdout_truncated, stderr_truncated = (
+            _capture_process(process, effective_timeout)
+        )
         return CommandResult(
             argv,
-            completed.returncode,
-            _decode(completed.stdout),
-            _decode(completed.stderr),
+            124 if timed_out else returncode,
+            _decode_captured(stdout, stdout_truncated),
+            _decode_captured(stderr, stderr_truncated),
             time.monotonic() - started,
+            timed_out=timed_out,
         )
 
 
-def _decode(raw: Optional[bytes]) -> str:
-    if not raw:
-        return ""
-    return _truncate(raw.decode("utf-8", errors="replace"))
+def _capture_process(
+    process: subprocess.Popen, timeout: float
+) -> Tuple[bytes, bytes, int, bool, bool, bool]:
+    """Drain both pipes concurrently while retaining at most ``MAX_OUTPUT_BYTES`` each.
+
+    ``subprocess.run(capture_output=True)`` only lets callers truncate *after* the child exits,
+    so a noisy or hostile Slurm command can exhaust the login node first. Non-blocking reads keep
+    memory bounded while also avoiding the stdout/stderr pipe deadlock.
+    """
+    selector = selectors.DefaultSelector()
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    truncated = {"stdout": False, "stderr": False}
+    streams = {"stdout": process.stdout, "stderr": process.stderr}
+
+    for name, stream in streams.items():
+        if stream is None:  # pragma: no cover - Popen above always requests both pipes
+            continue
+        os.set_blocking(stream.fileno(), False)
+        selector.register(stream, selectors.EVENT_READ, data=name)
+
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    process_exited_at: Optional[float] = None
+    timed_out = False
+    exceeded_limit = False
+
+    try:
+        while selector.get_map():
+            now = time.monotonic()
+            if now >= deadline:
+                timed_out = True
+                _kill(process)
+                _drain_stopped_process(selector, buffers, truncated)
+                break
+
+            events = selector.select(timeout=min(0.1, max(0.0, deadline - now)))
+            for key, _ in events:
+                name = key.data
+                try:
+                    chunk = os.read(key.fd, READ_CHUNK_BYTES)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    chunk = b""
+
+                if not chunk:
+                    try:
+                        selector.unregister(key.fileobj)
+                    except (KeyError, ValueError):
+                        pass
+                    try:
+                        key.fileobj.close()
+                    except OSError:
+                        pass
+                    continue
+
+                target = buffers[name]
+                room = max(0, MAX_OUTPUT_BYTES - len(target))
+                if room:
+                    target.extend(chunk[:room])
+                if len(chunk) > room:
+                    truncated[name] = True
+                    exceeded_limit = True
+                    _kill(process)
+                    break
+
+            if exceeded_limit:
+                break
+
+            if process.poll() is not None:
+                if process_exited_at is None:
+                    process_exited_at = time.monotonic()
+                elif time.monotonic() - process_exited_at >= POST_EXIT_GRACE_SECONDS:
+                    # A descendant may have inherited a pipe. Do not wait forever for its EOF.
+                    break
+
+        if process.poll() is None:
+            remaining = max(0.0, deadline - time.monotonic())
+            try:
+                process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _kill(process)
+        if process.poll() is None:  # pragma: no cover - kill should make this immediate
+            process.wait()
+    finally:
+        for key in list(selector.get_map().values()):
+            try:
+                selector.unregister(key.fileobj)
+            except (KeyError, ValueError):
+                pass
+            try:
+                key.fileobj.close()
+            except OSError:
+                pass
+        selector.close()
+
+    return (
+        bytes(buffers["stdout"]),
+        bytes(buffers["stderr"]),
+        process.returncode if process.returncode is not None else -1,
+        timed_out,
+        truncated["stdout"],
+        truncated["stderr"],
+    )
+
+
+def _kill(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+
+
+def _drain_stopped_process(
+    selector: selectors.BaseSelector,
+    buffers: Dict[str, bytearray],
+    truncated: Dict[str, bool],
+) -> None:
+    """Preserve already-written output after stopping a timed-out child.
+
+    Pipes stay non-blocking and the short deadline also covers descendants that inherited a
+    descriptor, so timeout handling cannot turn into an unbounded wait.
+    """
+    deadline = time.monotonic() + POST_EXIT_GRACE_SECONDS
+    while selector.get_map() and time.monotonic() < deadline:
+        remaining = max(0.0, deadline - time.monotonic())
+        events = selector.select(timeout=min(0.02, remaining))
+        for key, _ in events:
+            name = key.data
+            try:
+                chunk = os.read(key.fd, READ_CHUNK_BYTES)
+            except BlockingIOError:
+                continue
+            except OSError:
+                chunk = b""
+
+            if not chunk:
+                try:
+                    selector.unregister(key.fileobj)
+                except (KeyError, ValueError):
+                    pass
+                try:
+                    key.fileobj.close()
+                except OSError:
+                    pass
+                continue
+
+            target = buffers[name]
+            room = max(0, MAX_OUTPUT_BYTES - len(target))
+            if room:
+                target.extend(chunk[:room])
+            if len(chunk) > room:
+                truncated[name] = True
 
 
 @dataclass

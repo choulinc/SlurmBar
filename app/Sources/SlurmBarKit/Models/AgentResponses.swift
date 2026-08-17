@@ -19,6 +19,23 @@ public struct DoctorReport: Codable, Hashable, Sendable {
         case pythonVersion = "python_version"
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        generatedAt = try container.decode(Date.self, forKey: .generatedAt)
+        agentVersion = try container.decodeIfPresent(String.self, forKey: .agentVersion).map {
+            SanitizedText.clean($0, limit: 80)
+        }
+        ok = try container.decode(Bool.self, forKey: .ok)
+        hostname = try container.decodeIfPresent(String.self, forKey: .hostname).map {
+            SanitizedText.clean($0, limit: 255)
+        }
+        pythonVersion = try container.decodeIfPresent(String.self, forKey: .pythonVersion).map {
+            SanitizedText.clean($0, limit: 80)
+        }
+        checks = try container.decodeIfPresent([DoctorCheck].self, forKey: .checks) ?? []
+    }
+
     public init(
         schemaVersion: Int,
         generatedAt: Date,
@@ -73,7 +90,7 @@ public struct DoctorCheck: Codable, Hashable, Identifiable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
+        id = SanitizedText.clean(try container.decode(String.self, forKey: .id), limit: 80)
         title = SanitizedText.clean(try container.decode(String.self, forKey: .title), limit: 100)
         status = try container.decode(Status.self, forKey: .status)
         detail = try container.decodeIfPresent(String.self, forKey: .detail).map { SanitizedText.clean($0, limit: 600) }
@@ -119,7 +136,15 @@ public struct LogTail: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         generatedAt = try container.decode(Date.self, forKey: .generatedAt)
-        jobID = try container.decode(String.self, forKey: .jobID)
+        let decodedJobID = try container.decode(String.self, forKey: .jobID)
+        guard JobIDValidator.isValid(decodedJobID) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .jobID,
+                in: container,
+                debugDescription: "Expected an ASCII Slurm job id"
+            )
+        }
+        jobID = decodedJobID
         stream = try container.decode(LogStream.self, forKey: .stream)
         path = try container.decodeIfPresent(String.self, forKey: .path)
         // The agent already strips control characters; doing it again here means a payload from
@@ -192,6 +217,29 @@ public struct CancelResult: Codable, Hashable, Sendable {
         case jobID = "job_id"
         case ok, message, stderr
         case exitCode = "exit_code"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        generatedAt = try container.decode(Date.self, forKey: .generatedAt)
+        let decodedJobID = try container.decode(String.self, forKey: .jobID)
+        guard JobIDValidator.isValid(decodedJobID) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .jobID,
+                in: container,
+                debugDescription: "Expected an ASCII Slurm job id"
+            )
+        }
+        jobID = decodedJobID
+        ok = try container.decode(Bool.self, forKey: .ok)
+        exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
+        message = try container.decodeIfPresent(String.self, forKey: .message).map {
+            SanitizedText.clean($0, limit: 800)
+        }
+        stderr = try container.decodeIfPresent(String.self, forKey: .stderr).map {
+            SanitizedText.clean($0, limit: 1_000)
+        }
     }
 
     public init(

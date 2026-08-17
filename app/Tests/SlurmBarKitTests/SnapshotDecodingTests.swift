@@ -187,6 +187,52 @@ final class SnapshotDecodingTests: XCTestCase {
         }
     }
 
+    func testSanitizesAndBoundsStructuredAgentErrors() {
+        let long = String(repeating: "x", count: 5_000)
+        let json = #"{"schema_version":1,"error":{"code":"BAD\u202eCODE","message":"evil\u001b[31m"#
+            + long + #""}}"#
+        XCTAssertThrowsError(try decoder.decodeSnapshot(from: Data(json.utf8))) { error in
+            guard case ProtocolError.agentError(let code, let message) = error else {
+                return XCTFail("expected agentError, got \(error)")
+            }
+            XCTAssertFalse(code.contains("\u{202E}"))
+            XCTAssertFalse(message.contains("\u{1B}"))
+            XCTAssertLessThanOrEqual(code.count, 81)
+            XCTAssertLessThanOrEqual(message.count, 801)
+        }
+    }
+
+    func testRejectsACommandBearingRemoteJobID() {
+        let json = """
+        {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z",
+         "cluster":{"name":null,"hostname":null,"slurm_version":null},
+         "summary":{"running":1,"pending":0,"completing":0,"failed_recently":0,"completed_recently":0},
+         "jobs":[{"job_id":"1; open https://attacker.invalid","name":"job","state":"RUNNING",
+                  "resources":{"memory_used_bytes":null,"memory_limit_bytes":null,"memory_semantics":"unavailable"}}],
+         "warnings":[]}
+        """
+        XCTAssertThrowsError(try decoder.decodeSnapshot(from: Data(json.utf8))) { error in
+            guard case ProtocolError.decodingFailed = error else {
+                return XCTFail("expected decodingFailed, got \(error)")
+            }
+        }
+    }
+
+    func testRemoteDurationsCannotTriggerIntegerOverflow() throws {
+        let json = """
+        {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z",
+         "cluster":{"name":null,"hostname":null,"slurm_version":null},
+         "summary":{"running":1,"pending":0,"completing":0,"failed_recently":0,"completed_recently":0},
+         "jobs":[{"job_id":"1","name":"job","state":"RUNNING",
+                  "elapsed_seconds":-9223372036854775808,"time_limit_seconds":9223372036854775807,
+                  "resources":{"memory_used_bytes":null,"memory_limit_bytes":null,"memory_semantics":"unavailable"}}],
+         "warnings":[]}
+        """
+        let job = try XCTUnwrap(decoder.decodeSnapshot(from: Data(json.utf8)).jobs.first)
+        XCTAssertNil(job.elapsedSeconds)
+        XCTAssertNil(job.remainingTimeSeconds)
+    }
+
     func testUnknownStateDecodesAsUnknownRatherThanFailing() throws {
         let json = """
         {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z",
