@@ -3,6 +3,12 @@
 # Launch SlurmBar against the demo snapshot, for documentation screenshots.
 #
 #     ./demo/run-demo.sh
+#     ./demo/run-demo.sh gpu       # open the GPU page directly
+#     ./demo/run-demo.sh job       # open a job detail directly
+#     ./demo/run-demo.sh logs      # open the detail with logs expanded
+#
+# Set SLURMBAR_DEMO_SCREENSHOT_PATH to an absolute path under /tmp to export a cursor-free,
+# native 2x PNG of the selected page after it finishes loading.
 #
 # No cluster is contacted. Setting SLURMBAR_DEMO_SNAPSHOT also redirects the app's settings and
 # snapshot cache into a scratch directory, so your real cluster profile and its cached jobs are
@@ -10,6 +16,11 @@
 
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEMO_PAGE="${1:-list}"
+case "$DEMO_PAGE" in
+    list|gpu|job|logs) ;;
+    *) echo "usage: $0 [list|gpu|job|logs]" >&2; exit 2 ;;
+esac
 cd "$REPO_ROOT"
 
 python3 demo/make-demo-snapshot.py > demo/snapshot.json
@@ -22,6 +33,7 @@ sleep 1
 
 echo "==> Launching in demo mode"
 SLURMBAR_DEMO_SNAPSHOT="$REPO_ROOT/demo/snapshot.json" \
+SLURMBAR_DEMO_PAGE="$DEMO_PAGE" \
     ./out/SlurmBar.app/Contents/MacOS/SlurmBar \
         -AppleLanguages '(en)' -AppleLocale en_US &
 APP_PID=$!

@@ -420,6 +420,18 @@ public final class ClusterMonitor: ObservableObject {
         }
     }
 
+    /// GPU telemetry is user-triggered and never scheduled by the monitor's poll loop.
+    public func loadGPUStatus(jobIDs: [String]) async -> Result<GPUStatusResponse, SSHFailure> {
+        let client = clientFactory(profile)
+        do {
+            return .success(try await client.gpuStatus(jobIDs: jobIDs))
+        } catch let failure as SSHFailure {
+            return .failure(failure)
+        } catch {
+            return .failure(.launchFailed(detail: error.localizedDescription))
+        }
+    }
+
     /// Cancels a job. The caller is responsible for having obtained explicit confirmation; this
     /// is never reachable from an automatic code path.
     public func cancelJob(jobID: String) async -> Result<CancelResult, SSHFailure> {

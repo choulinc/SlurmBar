@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-20T03:10:00Z",
+  "agent_version": "0.2.4",
+  "jobs": [
+    {
+      "job_id": "282940_0",
+      "ok": true,
+      "message": null,
+      "gpus": [
+        {
+          "node": "example-gpu-017",
+          "index": 0,
+          "name": "NVIDIA A100-SXM4-40GB",
+          "utilization_percent": 97,
+          "memory_used_mib": 25185,
+          "memory_total_mib": 40960,
+          "power_draw_watts": 260.25
+        }
+      ]
+    },
+    {
+      "job_id": "283356_0",
+      "ok": false,
+      "message": "The allocation ended before GPU telemetry was collected.",
+      "gpus": []
+    }
+  ],
+  "warnings": []
+}

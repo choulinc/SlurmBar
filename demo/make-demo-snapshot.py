@@ -67,7 +67,7 @@ jobs = [
     job(job_id="10002", name="demo-finetune", state="RUNNING", partition="accelerated",
         submit_time=ago(hours=3, minutes=20), start_time=ago(hours=3, minutes=12),
         elapsed_seconds=secs(hours=3, minutes=12), time_limit_seconds=secs(hours=48),
-        nodes=["demo-accelerator-02"], node_count=1, cpus=8, gpus=2,
+        nodes=["demo-accelerator-02", "demo-accelerator-03"], node_count=2, cpus=16, gpus=2,
         resources=res(24 * GiB, 64 * GiB, "peak_rss", "requested_total",
                       gmem=16 * GiB, gutil=68),
         progress=prog(kind="training", phase="train", current=250, total=1000, unit="step",
@@ -162,7 +162,7 @@ jobs = [
 snapshot = {
     "schema_version": 1,
     "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "agent_version": "0.2.3",
+    "agent_version": "0.2.4",
     "cluster": {"name": "demo-cluster", "hostname": "login.demo.invalid",
                 "slurm_version": "slurm 24.05.0-demo"},
     # Must match what the jobs above actually are: the app recomputes these from the visible

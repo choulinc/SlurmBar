@@ -27,6 +27,16 @@ struct JobDetailView: View {
     @State private var copiedLabel: String?
     @State private var showLogs = false
 
+    private var opensLogsForDemo: Bool {
+        ProcessInfo.processInfo.environment["SLURMBAR_DEMO_PAGE"] == "logs"
+    }
+
+    init(job: Job, onBack: @escaping () -> Void) {
+        self.job = job
+        self.onBack = onBack
+        _showLogs = State(initialValue: ProcessInfo.processInfo.environment["SLURMBAR_DEMO_PAGE"] == "logs")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -55,6 +65,7 @@ struct JobDetailView: View {
                 .padding(.vertical, 10)
             }
             .frame(height: scrollHeight)
+            .defaultScrollAnchor(opensLogsForDemo ? .bottom : .top)
 
             Divider()
             footer
@@ -69,6 +80,11 @@ struct JobDetailView: View {
             Button("Keep running", role: .cancel) {}
         } message: {
             Text("This runs scancel \(job.jobID) for “\(job.name)” on \(controller.settings.selectedCluster?.effectiveName ?? "the cluster"). This cannot be undone.")
+        }
+        .task {
+            if showLogs, logTail == nil {
+                loadLogs(force: true)
+            }
         }
     }
 

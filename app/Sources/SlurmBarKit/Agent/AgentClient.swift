@@ -98,6 +98,38 @@ public struct AgentClient: Sendable {
         return try mapProtocol { try decoder.decodeCancelResult(from: data) }
     }
 
+    /// Starts one overlapping `srun` step per job on the agent. This is intentionally on-demand
+    /// and never part of the polling snapshot because it touches compute-node allocations.
+    public func gpuStatus(jobIDs: [String]) async throws -> GPUStatusResponse {
+        var seen = Set<String>()
+        let validated = try jobIDs.compactMap { value -> String? in
+            let jobID = try JobIDValidator.validate(value)
+            return seen.insert(jobID).inserted ? jobID : nil
+        }
+        guard !validated.isEmpty else {
+            throw SSHFailure.protocolFailure(.agentError(
+                code: "INVALID_ARGUMENT",
+                message: "At least one running GPU job is required."
+            ))
+        }
+        guard validated.count <= 64 else {
+            throw SSHFailure.protocolFailure(.agentError(
+                code: "INVALID_ARGUMENT",
+                message: "GPU status supports at most 64 jobs at once."
+            ))
+        }
+        var arguments = profile.agentCommand + ["gpu", "--json"]
+        for jobID in validated {
+            arguments += ["--job-id", jobID]
+        }
+        // The agent runs four jobs concurrently. Allow one command-timeout-sized window per
+        // wave, plus one window for its allocation lookup and a small SSH margin.
+        let waves = (validated.count + 3) / 4
+        let gpuTimeout = TimeInterval(30 + waves * 15)
+        let data = try await execute(arguments, timeoutOverride: max(timeout, gpuTimeout))
+        return try mapProtocol { try decoder.decodeGPUStatus(from: data) }
+    }
+
     // MARK: - Plumbing
 
     private func execute(_ arguments: [String], timeoutOverride: TimeInterval? = nil) async throws -> Data {

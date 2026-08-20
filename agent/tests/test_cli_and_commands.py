@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from conftest import read_fixture
-from slurmbar_agent import commands, doctor as doctor_mod
+from slurmbar_agent import commands, doctor as doctor_mod, gpu as gpu_mod
 from slurmbar_agent.cli import build_parser, main
 from slurmbar_agent.errors import InvalidArgument, NotFound
 from slurmbar_agent.runner import FakeRunner
@@ -239,6 +239,87 @@ class TestJobDetail:
 
 
 # ---------------------------------------------------------------------------------------------
+# gpu
+# ---------------------------------------------------------------------------------------------
+
+
+class TestGPUStatus:
+    def test_parses_multiple_devices_and_preserves_argv_boundaries(self):
+        runner = FakeRunner()
+        runner.stub("squeue --noheader --jobs 282940_0", "282940_0|1|gres/gpu:2\n")
+        runner.stub(
+            "srun --jobid=282940_0",
+            "gpu-01|0, NVIDIA A100-SXM4-40GB, 97, 25185, 40960, 260.25\n"
+            "gpu-01|1, NVIDIA A100-SXM4-40GB, 4, 1024, 40960, [Not Supported]\n",
+        )
+        payload = gpu_mod.collect_gpu_status(runner, ["282940_0"])
+
+        assert payload["jobs"][0]["ok"] is True
+        assert payload["jobs"][0]["gpus"][0]["utilization_percent"] == 97
+        assert payload["jobs"][0]["gpus"][0]["node"] == "gpu-01"
+        assert payload["jobs"][0]["gpus"][1]["power_draw_watts"] is None
+        assert runner.calls[1][:6] == [
+            "srun", "--jobid=282940_0", "--overlap", "--nodes=1", "--ntasks=1",
+            "--ntasks-per-node=1",
+        ]
+
+    def test_one_failed_job_does_not_discard_other_jobs(self):
+        runner = FakeRunner()
+        runner.stub("squeue --noheader --jobs 1,2", "1|1|gres/gpu:1\n2|1|gres/gpu:1\n")
+        runner.stub("srun --jobid=1", "gpu-01|0, NVIDIA H100, 90, 40000, 81920, 500\n")
+        runner.stub("srun --jobid=2", "", returncode=1, stderr="job step creation disabled")
+        payload = gpu_mod.collect_gpu_status(runner, ["1", "2"])
+
+        assert [job["ok"] for job in payload["jobs"]] == [True, False]
+        assert "job step creation disabled" in payload["jobs"][1]["message"]
+
+    def test_invalid_job_id_is_refused_before_srun(self):
+        runner = FakeRunner()
+        with pytest.raises(InvalidArgument):
+            gpu_mod.collect_gpu_status(runner, ["1", "$(id)"])
+        assert runner.calls == []
+
+    def test_queries_every_node_and_keeps_node_identity(self):
+        runner = FakeRunner()
+        runner.stub("squeue --noheader --jobs 42", "42|2|gres/gpu:2\n")
+        runner.stub(
+            "srun --jobid=42",
+            "gpu-01|0, NVIDIA H200, 10, 100, 1000, 200\n"
+            "gpu-01|1, NVIDIA H200, 20, 200, 1000, 210\n"
+            "gpu-02|0, NVIDIA H200, 30, 300, 1000, 220\n"
+            "gpu-02|1, NVIDIA H200, 40, 400, 1000, 230\n",
+        )
+
+        job = gpu_mod.collect_gpu_status(runner, ["42"])["jobs"][0]
+        assert job["ok"] is True
+        assert job["message"] is None
+        assert {gpu["node"] for gpu in job["gpus"]} == {"gpu-01", "gpu-02"}
+        srun = runner.calls[1]
+        assert "--nodes=2" in srun
+        assert "--ntasks=2" in srun
+
+    def test_hides_devices_when_nvidia_smi_exposes_more_than_allocated(self):
+        runner = FakeRunner()
+        runner.stub("squeue --noheader --jobs 42", "42|1|gres/gpu:1\n")
+        runner.stub(
+            "srun --jobid=42",
+            "gpu-01|0, NVIDIA H200, 10, 100, 1000, 200\n"
+            "gpu-01|1, NVIDIA H200, 20, 200, 1000, 210\n",
+        )
+
+        job = gpu_mod.collect_gpu_status(runner, ["42"])["jobs"][0]
+        assert job["ok"] is False
+        assert job["gpus"] == []
+        assert "more GPUs than Slurm allocated" in job["message"]
+
+    def test_more_than_the_job_limit_is_rejected_not_silently_truncated(self):
+        runner = FakeRunner()
+        with pytest.raises(InvalidArgument, match="too many GPU jobs"):
+            gpu_mod.collect_gpu_status(runner, [str(i) for i in range(1, 66)])
+        assert runner.calls == []
+
+
+# ---------------------------------------------------------------------------------------------
 # cancel  (guards only — scancel is never executed)
 # ---------------------------------------------------------------------------------------------
 
@@ -289,6 +370,12 @@ class TestCLI:
         assert default.log_fallback_limit == snapshot_mod.MAX_LOG_FALLBACK_JOBS
         raised = build_parser().parse_args(["snapshot", "--log-fallback-limit", "40"])
         assert raised.log_fallback_limit == 40
+
+    def test_gpu_accepts_repeated_job_ids(self):
+        parsed = build_parser().parse_args(
+            ["gpu", "--json", "--job-id", "282940_0", "--job-id", "283356_0"]
+        )
+        assert parsed.job_id == ["282940_0", "283356_0"]
 
     def test_doctor_emits_json_on_stdout_only(self, capsys, tmp_path: Path, monkeypatch):
         monkeypatch.setenv("SLURMBAR_STATE_DIR", str(tmp_path))

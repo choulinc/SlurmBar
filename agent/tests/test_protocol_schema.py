@@ -15,6 +15,7 @@ import pytest
 from conftest import FIXTURES, REPO_ROOT, read_fixture
 from slurmbar_agent import doctor as doctor_mod
 from slurmbar_agent.commands import cancel_job, read_logs
+from slurmbar_agent.gpu import collect_gpu_status
 from slurmbar_agent.runner import FakeRunner
 from slurmbar_agent.snapshot import build_snapshot
 
@@ -60,6 +61,7 @@ class TestSchemasAreValid:
             "logs.schema.json",
             "cancel.schema.json",
             "progress-status.schema.json",
+            "gpu.schema.json",
         ],
     )
     def test_schema_itself_is_a_valid_json_schema(self, name):
@@ -124,6 +126,15 @@ class TestGeneratedPayloadsConform:
         runner.stub("scancel", "", returncode=0)
         validate(cancel_job(runner, "201551"), "cancel.schema.json")
 
+    def test_gpu_status(self):
+        runner = FakeRunner()
+        runner.stub("squeue --noheader --jobs 201551", "201551|1|gres/gpu:1\n")
+        runner.stub(
+            "srun --jobid=201551",
+            "example-gpu-017|0, NVIDIA A100-SXM4-40GB, 87, 24576, 40960, 231.4\n",
+        )
+        validate(collect_gpu_status(runner, ["201551"]), "gpu.schema.json")
+
 
 class TestCommittedExamples:
     """The example payloads shipped for the Swift tests must stay schema-valid."""
@@ -139,6 +150,7 @@ class TestCommittedExamples:
             ("logs-tail.json", "logs.schema.json"),
             ("cancel-ok.json", "cancel.schema.json"),
             ("progress-status-training.json", "progress-status.schema.json"),
+            ("gpu-status.json", "gpu.schema.json"),
         ],
     )
     def test_example_validates(self, filename, schema):

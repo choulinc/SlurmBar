@@ -24,6 +24,7 @@ slurmbar-agent doctor   --json
 slurmbar-agent snapshot --json [--user U] [--history-hours 24] [--progress-dir PATH]
 slurmbar-agent job      --json --job-id 201551
 slurmbar-agent logs     --json --job-id 201551 --stream stdout --lines 200
+slurmbar-agent gpu      --json --job-id 282940_0 --job-id 282940_1
 slurmbar-agent cancel   --json --job-id 201551 --confirm    # destructive
 slurmbar-agent paths    --json
 ```
@@ -40,6 +41,8 @@ carries warnings. See [../docs/protocol.md](../docs/protocol.md).
   free-text fields last. Human-formatted tables are never parsed.
 * **Degrades instead of failing.** Missing `sacct`, `sstat`, accounting or progress files each
   produce a structured warning; the snapshot still returns.
+* **GPU telemetry is on demand.** Opening the GPU page starts one overlapping `srun` step per
+  requested allocation (four at a time); it is never added to the snapshot polling budget.
 * **Honest metrics.** Memory values carry their semantics (`peak_rss`, `requested_per_node`, …).
   Anything unavailable is `null`.
 * **Bounded reads.** Log tails are capped by bytes and lines; progress files by size.

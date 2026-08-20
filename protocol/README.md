@@ -8,6 +8,7 @@ app renders comes through it; the app never parses Slurm output itself.
 | `schema/snapshot.schema.json` | `slurmbar-agent snapshot --json` | `SlurmBarKit.Snapshot` |
 | `schema/doctor.schema.json` | `slurmbar-agent doctor --json` | `SlurmBarKit.DoctorReport` |
 | `schema/logs.schema.json` | `slurmbar-agent logs --json` | `SlurmBarKit.LogTail` |
+| `schema/gpu.schema.json` | `slurmbar-agent gpu --json` | `SlurmBarKit.GPUStatusResponse` |
 | `schema/cancel.schema.json` | `slurmbar-agent cancel --json` | `SlurmBarKit.CancelResult` |
 | `schema/progress-status.schema.json` | `slurmbar_progress` inside the job | `slurmbar-agent` on the login node |
 

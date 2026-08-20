@@ -37,6 +37,12 @@ struct FileBackedRunner: RemoteCommandRunner {
             )
         }
 
+        if remoteArguments.contains("gpu") {
+            return RemoteCommandResult(
+                exitCode: 0, standardOutput: Self.gpuJSON(), standardError: "", duration: 0.25
+            )
+        }
+
         // Cancelling is meaningless against a file, and a demo must never look like it worked.
         throw SSHFailure.remoteCommandFailed(
             exitCode: 1, stderr: "demo mode: this action needs a real cluster"
@@ -44,10 +50,10 @@ struct FileBackedRunner: RemoteCommandRunner {
     }
 
     private static let doctorJSON = """
-    {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z","agent_version":"0.2.1","ok":true,
+    {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z","agent_version":"0.2.4","ok":true,
      "hostname":"login.demo.invalid","python_version":"3.11.6","warnings":[],
      "checks":[
-      {"id":"agent","title":"SlurmBar agent","status":"ok","detail":null,"value":"0.2.1"},
+      {"id":"agent","title":"SlurmBar agent","status":"ok","detail":null,"value":"0.2.4"},
       {"id":"python","title":"Remote Python","status":"ok","detail":null,"value":"3.11.6"},
       {"id":"slurm_commands","title":"Slurm commands","status":"ok","detail":null,"value":"squeue, sacct, sstat"},
       {"id":"slurm_version","title":"Slurm version","status":"ok","detail":null,"value":"slurm 24.05.0-demo"},
@@ -70,4 +76,47 @@ struct FileBackedRunner: RemoteCommandRunner {
       "Epoch 42 [10/25]  loss 0.1234  2.0s/it  mem 8.0GB"
      ]}
     """
+
+    private static func gpuJSON() -> Data {
+        func device(
+            node: String, index: Int, utilization: Double,
+            memoryUsed: Double, power: Double
+        ) -> [String: Any] {
+            [
+                "node": node,
+                "index": index,
+                "name": "NVIDIA H200",
+                "utilization_percent": utilization,
+                "memory_used_mib": memoryUsed,
+                "memory_total_mib": 143_771.0,
+                "power_draw_watts": power,
+            ]
+        }
+
+        let payload: [String: Any] = [
+            "schema_version": 1,
+            "generated_at": ISO8601DateFormatter().string(from: Date()),
+            "agent_version": "0.2.4",
+            "jobs": [
+                [
+                    "job_id": "10001", "ok": true, "message": NSNull(),
+                    "gpus": [device(
+                        node: "demo-accelerator-01", index: 0, utilization: 72,
+                        memoryUsed: 32_540, power: 386.2
+                    )],
+                ],
+                [
+                    "job_id": "10002", "ok": true, "message": NSNull(),
+                    "gpus": [
+                        device(node: "demo-accelerator-02", index: 0, utilization: 91, memoryUsed: 61_402, power: 512.7),
+                        device(node: "demo-accelerator-02", index: 1, utilization: 84, memoryUsed: 58_116, power: 488.1),
+                        device(node: "demo-accelerator-03", index: 0, utilization: 67, memoryUsed: 47_205, power: 421.9),
+                        device(node: "demo-accelerator-03", index: 1, utilization: 76, memoryUsed: 50_880, power: 449.3),
+                    ],
+                ],
+            ],
+            "warnings": [],
+        ]
+        return (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? Data()
+    }
 }

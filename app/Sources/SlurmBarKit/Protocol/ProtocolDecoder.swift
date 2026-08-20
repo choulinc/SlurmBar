@@ -67,6 +67,10 @@ public struct ProtocolDecoder: Sendable {
         try decode(JobDetailResponse.self, from: data, versionKey: "schema_version", label: "job detail")
     }
 
+    public func decodeGPUStatus(from data: Data) throws -> GPUStatusResponse {
+        try decode(GPUStatusResponse.self, from: data, versionKey: "schema_version", label: "GPU status")
+    }
+
     // MARK: - Core
 
     private func decode<T: Decodable>(

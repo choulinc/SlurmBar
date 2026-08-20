@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/choulinc/SlurmBar/protocol/schema/gpu.schema.json",
+  "title": "SlurmBar live GPU status response",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "jobs", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string" },
+    "agent_version": { "type": ["string", "null"] },
+    "jobs": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["job_id", "ok", "message", "gpus"],
+        "additionalProperties": false,
+        "properties": {
+          "job_id": { "type": "string", "pattern": "^[0-9]+(?:_[0-9]+)?$" },
+          "ok": { "type": "boolean" },
+          "message": { "type": ["string", "null"] },
+          "gpus": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["node", "index", "name", "utilization_percent", "memory_used_mib", "memory_total_mib", "power_draw_watts"],
+              "additionalProperties": false,
+              "properties": {
+                "node": { "type": "string", "minLength": 1, "maxLength": 160 },
+                "index": { "type": "integer", "minimum": 0 },
+                "name": { "type": "string" },
+                "utilization_percent": { "type": ["number", "null"], "minimum": 0 },
+                "memory_used_mib": { "type": ["number", "null"], "minimum": 0 },
+                "memory_total_mib": { "type": ["number", "null"], "minimum": 0 },
+                "power_draw_watts": { "type": ["number", "null"], "minimum": 0 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "object" } }
+  }
+}

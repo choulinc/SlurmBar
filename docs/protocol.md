@@ -14,11 +14,17 @@ Current version: **`schema_version: 1`**.
 | `slurmbar-agent doctor --json` | `doctor.schema.json` | Test Connection |
 | `slurmbar-agent job --job-id ID --json` | job detail | Opening a job |
 | `slurmbar-agent logs --job-id ID --stream stdout --lines 200 --json` | `logs.schema.json` | Viewing logs |
+| `slurmbar-agent gpu --job-id ID [--job-id ID…] --json` | `gpu.schema.json` | Opening or refreshing the GPU page |
 | `slurmbar-agent cancel --job-id ID --confirm --json` | `cancel.schema.json` | Confirmed cancel only |
 | `slurmbar-agent paths --json` | diagnostic | Manual |
 
 Optional flags on `snapshot`: `--user`, `--history-hours`, `--progress-dir`,
 `--progress-stale-seconds`, `--no-log-fallback`, `--log-fallback-limit`, `--no-sstat`.
+
+The GPU response carries a `node` on every device. Before starting telemetry, the agent asks
+`squeue` for each allocation's node count and GPUs per node. It runs one task per node and hides
+the result if a node exposes more devices than Slurm allocated; a smaller result is returned with
+an explicit partial-reading message.
 
 ## Conventions
 

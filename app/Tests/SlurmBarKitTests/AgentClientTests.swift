@@ -80,6 +80,52 @@ final class AgentClientTests: XCTestCase {
         XCTAssertTrue(argv.contains("201551"))
     }
 
+    func testGPUStatusBuildsOneValidatedFlagPerJob() async throws {
+        let runner = StubRemoteRunner(responses: [
+            .init(stdout: try Fixtures.data(named: "gpu-status.json"))
+        ])
+        let client = AgentClient(runner: runner, profile: profile())
+        _ = try await client.gpuStatus(jobIDs: ["282940_0", "283356_0", "282940_0"])
+
+        let argv = try XCTUnwrap(runner.invocations.first)
+        XCTAssertTrue(argv.contains("gpu"))
+        XCTAssertEqual(argv.filter { $0 == "--job-id" }.count, 2)
+        XCTAssertTrue(argv.contains("282940_0"))
+        XCTAssertTrue(argv.contains("283356_0"))
+    }
+
+    func testGPUStatusRejectsInvalidJobBeforeRunning() async {
+        let runner = StubRemoteRunner(responses: [.init()])
+        let client = AgentClient(runner: runner, profile: profile())
+        do {
+            _ = try await client.gpuStatus(jobIDs: ["282940_0", "1; uname"])
+            XCTFail("should have been rejected")
+        } catch {
+            XCTAssertEqual(runner.invocationCount, 0)
+        }
+    }
+
+    func testGPUStatusRejectsMoreThan64JobsRatherThanSilentlyDroppingThem() async {
+        let runner = StubRemoteRunner(responses: [.init()])
+        let client = AgentClient(runner: runner, profile: profile())
+        do {
+            _ = try await client.gpuStatus(jobIDs: (1...65).map(String.init))
+            XCTFail("should have rejected an incomplete query")
+        } catch {
+            XCTAssertEqual(runner.invocationCount, 0)
+        }
+    }
+
+    func testGPUStatusTimeoutScalesWithTheNumberOfFourWayWaves() async throws {
+        let runner = StubRemoteRunner(responses: [
+            .init(stdout: try Fixtures.data(named: "gpu-status.json"))
+        ])
+        let client = AgentClient(runner: runner, profile: profile())
+        _ = try await client.gpuStatus(jobIDs: (1...8).map(String.init))
+
+        XCTAssertEqual(runner.timeouts.first, 60)
+    }
+
     func testJobIDIsValidatedBeforeAnyCommandRuns() async {
         let runner = StubRemoteRunner(responses: [.init()])
         let client = AgentClient(runner: runner, profile: profile())

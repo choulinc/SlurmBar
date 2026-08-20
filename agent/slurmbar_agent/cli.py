@@ -15,7 +15,7 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Sequence
 
-from . import commands, doctor as doctor_mod, snapshot as snapshot_mod
+from . import commands, doctor as doctor_mod, gpu as gpu_mod, snapshot as snapshot_mod
 from .errors import AgentError
 from .progress import DEFAULT_STALE_SECONDS, default_state_dir
 from .protocol import AGENT_VERSION, SCHEMA_VERSION
@@ -83,6 +83,15 @@ def build_parser() -> argparse.ArgumentParser:
     logs.add_argument("--stream", choices=("stdout", "stderr"), default="stdout")
     logs.add_argument("--lines", type=int, default=200)
     logs.add_argument("--path", default=None, help="Known log path from a previous snapshot.")
+
+    gpu = sub.add_parser("gpu", help="Collect live GPU telemetry inside running jobs.")
+    add_json_flag(gpu)
+    gpu.add_argument(
+        "--job-id",
+        action="append",
+        required=True,
+        help="Running job or array-task id. Repeat for more than one job.",
+    )
 
     cancel = sub.add_parser("cancel", help="Cancel a job (destructive; requires --confirm).")
     add_json_flag(cancel)
@@ -162,6 +171,9 @@ def _dispatch(args: argparse.Namespace, runner: SubprocessRunner) -> Dict[str, A
             path_override=args.path,
             timeout=args.timeout,
         )
+
+    if args.command == "gpu":
+        return gpu_mod.collect_gpu_status(runner, args.job_id, timeout=args.timeout)
 
     if args.command == "cancel":
         if not args.confirm:

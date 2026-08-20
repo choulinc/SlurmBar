@@ -111,6 +111,18 @@ final class SnapshotDecodingTests: XCTestCase {
         XCTAssertNil(snapshot.jobs[0].timeLimitSeconds)
     }
 
+    func testDecodesGPUStatus() throws {
+        let status = try decoder.decodeGPUStatus(from: try Fixtures.data(named: "gpu-status.json"))
+        XCTAssertEqual(status.jobs.count, 2)
+        XCTAssertEqual(status.jobs[0].jobID, "282940_0")
+        XCTAssertEqual(status.jobs[0].gpus[0].name, "NVIDIA A100-SXM4-40GB")
+        XCTAssertEqual(status.jobs[0].gpus[0].node, "example-gpu-017")
+        XCTAssertEqual(status.jobs[0].gpus[0].utilizationPercent, 97)
+        XCTAssertEqual(status.jobs[0].gpus[0].memoryFraction ?? 0, 25185.0 / 40960.0, accuracy: 0.0001)
+        XCTAssertFalse(status.jobs[1].ok)
+        XCTAssertTrue(status.jobs[1].gpus.isEmpty)
+    }
+
     // MARK: - Version handling
 
     func testRejectsUnsupportedSchemaVersion() throws {

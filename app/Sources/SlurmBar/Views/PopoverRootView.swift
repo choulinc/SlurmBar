@@ -10,6 +10,11 @@ struct PopoverRootView: View {
     static let width: CGFloat = 372
 
     @State private var detailJob: Job?
+    @State private var showsGPUPage = false
+
+    private var requestedDemoPage: String? {
+        ProcessInfo.processInfo.environment["SLURMBAR_DEMO_PAGE"]
+    }
 
     /// Usable height of the screen holding the menu bar, minus the menu bar itself.
     private var screenHeight: CGFloat {
@@ -39,7 +44,11 @@ struct PopoverRootView: View {
 
     var body: some View {
         Group {
-            if let job = detailJob {
+            if showsGPUPage {
+                GPUStatusView(
+                    onBack: { withAnimation(.easeOut(duration: 0.12)) { showsGPUPage = false } }
+                )
+            } else if let job = detailJob {
                 // Same popover, second page. A sheet or a separate window would move key
                 // focus and macOS would close the popover underneath it.
                 JobDetailView(job: job, onBack: { withAnimation(.easeOut(duration: 0.12)) { detailJob = nil } })
@@ -50,6 +59,7 @@ struct PopoverRootView: View {
         .onAppear {
             PopoverVisibility.shared.markVisible()
             controller.popoverDidOpen()
+            openRequestedDemoPage()
             // Ask after the user has seen the popover once, not while it is still empty.
             Task {
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
@@ -62,9 +72,43 @@ struct PopoverRootView: View {
         }
     }
 
+    private func openRequestedDemoPage() {
+        switch requestedDemoPage {
+        case "gpu":
+            Task { @MainActor in
+                for _ in 0..<20 {
+                    if controller.monitor?.snapshot?.jobs.contains(where: {
+                        ($0.state == .running || $0.state == .completing) && ($0.gpus ?? 0) > 0
+                    }) == true {
+                        showsGPUPage = true
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+                showsGPUPage = true
+            }
+        case "job", "logs":
+            // The file-backed demo monitor normally has its snapshot before the popover opens.
+            // Retry briefly so documentation captures remain deterministic on a slower machine.
+            Task { @MainActor in
+                for _ in 0..<20 {
+                    if let job = controller.monitor?.snapshot?.jobs.first(where: { $0.jobID == "10001" }) {
+                        detailJob = job
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }
+        default:
+            break
+        }
+    }
+
     private var listPage: some View {
         VStack(spacing: 0) {
-            PopoverHeaderView()
+            PopoverHeaderView(
+                onShowGPU: { withAnimation(.easeOut(duration: 0.12)) { showsGPUPage = true } }
+            )
 
             Divider()
 
@@ -112,6 +156,7 @@ struct PopoverRootView: View {
 
 private struct PopoverHeaderView: View {
     @EnvironmentObject private var controller: AppController
+    let onShowGPU: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -125,6 +170,14 @@ private struct PopoverHeaderView: View {
                 }
 
                 Spacer(minLength: 4)
+
+                Button(action: onShowGPU) {
+                    Image(systemName: "gauge.with.dots.needle.50percent")
+                }
+                .buttonStyle(.borderless)
+                .disabled(controller.monitor?.snapshot == nil)
+                .help("Live GPU status")
+                .accessibilityLabel("Open live GPU status")
 
                 CleanupMenu()
 

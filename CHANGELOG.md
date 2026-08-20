@@ -2,7 +2,21 @@
 
 Notable changes per release. Dates are the release date, not the last commit.
 
-## Unreleased
+## 0.2.4 — 2026-08-20
+
+### Added — live GPU dashboard
+
+- The popover now has an on-demand GPU page for running GPU jobs. It groups devices by job and
+  compute node in compact two-column cards, with utilization on the outer ring, framebuffer
+  memory on the inner ring, and exact memory and power readings instead of raw `nvidia-smi` text.
+- The agent's new `gpu` command runs one bounded `srun --overlap` query per allocation, with up
+  to four queries in parallel. A job that ends or refuses a new step is reported on its own card
+  without discarding readings from the other jobs. GPU queries are never part of normal polling.
+- Multi-node allocations run one telemetry task per node and retain node identity. The agent
+  verifies the allocation first and refuses to display devices when `nvidia-smi` exposes more
+  GPUs than Slurm granted, preventing another job's node-level devices from being misattributed.
+- Failed refreshes keep the previous reading visibly marked stale, and the SSH timeout now scales
+  with the bounded four-way query waves instead of cutting off large valid requests at 90 seconds.
 
 ### Fixed — the log-progress fallback missed most of what it was built to catch
 

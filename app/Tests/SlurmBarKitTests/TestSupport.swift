@@ -48,6 +48,7 @@ final class StubRemoteRunner: RemoteCommandRunner, @unchecked Sendable {
     private let lock = NSLock()
     private var responses: [Response]
     private(set) var invocations: [[String]] = []
+    private(set) var timeouts: [TimeInterval] = []
 
     init(responses: [Response]) {
         self.responses = responses
@@ -70,6 +71,7 @@ final class StubRemoteRunner: RemoteCommandRunner, @unchecked Sendable {
     func run(remoteArguments: [String], timeout: TimeInterval) async throws -> RemoteCommandResult {
         lock.lock()
         invocations.append(remoteArguments)
+        timeouts.append(timeout)
         let response = responses.count > 1 ? responses.removeFirst() : (responses.first ?? Response())
         lock.unlock()
 

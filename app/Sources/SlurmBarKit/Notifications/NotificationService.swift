@@ -21,17 +21,13 @@ public final class RecordingNotifier: NotificationDelivering, @unchecked Sendabl
     public init() {}
 
     public var delivered: [JobEvent] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
+        lock.withLock { storage }
     }
 
     public func requestAuthorizationIfNeeded() async {}
 
     public func deliver(_ event: JobEvent) async {
-        lock.lock()
-        storage.append(event)
-        lock.unlock()
+        lock.withLock { storage.append(event) }
     }
 }
 
@@ -45,10 +41,11 @@ public final class UserNotificationService: NotificationDelivering, @unchecked S
     public init() {}
 
     public func requestAuthorizationIfNeeded() async {
-        lock.lock()
-        let alreadyAsked = didRequestAuthorization
-        didRequestAuthorization = true
-        lock.unlock()
+        let alreadyAsked = lock.withLock {
+            let value = didRequestAuthorization
+            didRequestAuthorization = true
+            return value
+        }
         guard !alreadyAsked else { return }
 
         // Bundle check: UNUserNotificationCenter.current() raises when the executable is not a
@@ -58,9 +55,7 @@ public final class UserNotificationService: NotificationDelivering, @unchecked S
         do {
             let granted = try await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound])
-            lock.lock()
-            isAuthorized = granted
-            lock.unlock()
+            lock.withLock { isAuthorized = granted }
         } catch {
             NSLog("SlurmBar: notification authorization failed: %@", String(describing: error))
         }
@@ -68,9 +63,7 @@ public final class UserNotificationService: NotificationDelivering, @unchecked S
 
     public func deliver(_ event: JobEvent) async {
         guard Bundle.main.bundleIdentifier != nil else { return }
-        lock.lock()
-        let authorized = isAuthorized
-        lock.unlock()
+        let authorized = lock.withLock { isAuthorized }
         guard authorized else { return }
 
         let content = UNMutableNotificationContent()

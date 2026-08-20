@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Slurm jobs at a glance.</strong></p>
 
 A native macOS menu bar app for monitoring Slurm jobs on remote HPC clusters over SSH. Running
-and pending jobs, training progress, runtime, memory, logs and failures — without keeping a
+and pending jobs, live GPU utilization, training progress, runtime, memory, logs and failures — without keeping a
 terminal open and without running anything persistent on the cluster.
 
 **New here? Go straight to the [Quickstart](#quickstart)** — it takes about fifteen minutes and
@@ -26,6 +26,8 @@ Python script there, and renders the JSON it prints. That's the whole design.
   workload opts in via the three-line `slurmbar_progress` integration.
 - **Honest resources** — memory usage always carries its semantics (`peak`, `per node`,
   `requested`). Anything Slurm doesn't report shows as `N/A`, never as a fabricated number.
+- **Live GPU dashboard** — utilization and framebuffer memory as nested rings in compact
+  two-column cards, grouped by job and compute node, with exact memory and power readings.
 - **Bounded log tails** — the last 200 lines of stdout or stderr, fetched only when you ask.
 - **Native notifications** on completion, failure, timeout, OOM, and NaN loss — edge-triggered,
   so a failed job notifies once, not on every poll.
@@ -51,6 +53,10 @@ cluster, account, node, path or job.
 <p align="center">
   <img src="docs/images/job-detail.png" alt="SlurmBar job detail showing fabricated progress and resources" width="360">
   <img src="docs/images/job-detail-logs.png" alt="SlurmBar job detail showing a fabricated log tail" width="360">
+</p>
+
+<p align="center">
+  <img src="docs/images/gpu-status.png" alt="SlurmBar live GPU dashboard showing fabricated multi-node GPU telemetry" width="360">
 </p>
 
 ---
@@ -565,12 +571,15 @@ reporter.update(current=trial, total=n_trials, unit="trial", metrics={"best_scor
 | Peak memory (finished) | `sacct` | Largest single step's `MaxRSS`. Not summed across nodes. |
 | Requested memory | `squeue` / `sacct` | May be **per node** or **per CPU**; labelled accordingly. |
 | GPU count | Slurm TRES | Requested count. |
-| GPU memory / utilization | `sacct`/`sstat` TRES | **Only** if your site's accounting records `gres/gpumem`. Usually `N/A`. |
+| Live GPU utilization / memory / power | `srun --overlap` + `nvidia-smi` | On demand from the GPU page, once per allocated node; never part of background polling. |
 | Epoch, batch, loss, ETA | `slurmbar_progress` | Not available from Slurm at all. |
 
-**Not available, by design:** live per-process GPU telemetry. SlurmBar will not launch
-`nvidia-smi` through a new `srun` job step — that perturbs the allocation and costs a scheduler
-RPC per refresh. GPU numbers appear only when Slurm already has them.
+**Live GPU telemetry is explicitly on demand.** Opening the GPU page (or pressing its refresh
+button) launches a short overlapping job step inside each running GPU allocation and runs one
+`nvidia-smi` task per allocated node. It is never part of the normal polling loop. SlurmBar also
+checks the number of visible devices against the job's Slurm GRES allocation and hides the result
+if the cluster exposes GPUs outside that allocation. This view reports devices, not per-process
+ownership.
 
 **On memory honesty:** `MaxRSS` is a high-water mark for a single step, and a request may be
 per-node or per-CPU. SlurmBar therefore renders memory as `112.6 GB peak / 256 GB per node` and
@@ -695,7 +704,9 @@ app cannot display invented jobs.
   fallback covers only the few most recently started running jobs per poll — their paths are
   resolved with a small, fixed number of `scontrol show job` calls rather than one per job.
   Opening a job always resolves its paths.
-- **GPU memory and utilization** appear only if your site's accounting records them. Most don't.
+- **Live GPU telemetry requires `srun --overlap` and `nvidia-smi`** on the compute nodes. A site
+  may disable overlapping steps or restrict device access; those jobs show an explicit error while
+  successful jobs remain visible. Queries are capped at 64 jobs and 256 allocated nodes per refresh.
 - **Multi-node memory is not aggregated.** `MaxRSS` is per step; the protocol says so explicitly
   rather than summing values that aren't summable.
 - **Ad-hoc signed only.** Fine locally; distribution needs a Developer ID and notarization.
