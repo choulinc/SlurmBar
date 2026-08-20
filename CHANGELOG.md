@@ -2,6 +2,21 @@
 
 Notable changes per release. Dates are the release date, not the last commit.
 
+## 0.2.6 — 2026-08-20
+
+### Added — assisted password and OTP login
+
+- When OpenSSH reports that a cluster needs password or keyboard-interactive authentication,
+  the disconnected state and Settings health report now offer **Authenticate in Terminal…**.
+- The action opens the selected cluster alias with `BatchMode=no` in SSH master mode, leaving
+  password and OTP entry entirely inside Terminal. SlurmBar never receives or stores credentials.
+- After Terminal opens, SlurmBar performs three bounded retries so it reconnects automatically
+  once the ControlMaster becomes available.
+- Interactive command construction is shell-quoted and covered by injection regression tests;
+  host-key checking remains at OpenSSH's secure default.
+- Right-clicking the menu bar item now opens a compact SlurmBar-styled action panel with
+  **Open** and **Quit**, while the existing left-click dashboard remains unchanged.
+
 ## 0.2.5 — 2026-08-20
 
 ### Added — one-click installation

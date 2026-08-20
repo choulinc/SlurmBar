@@ -188,6 +188,23 @@ struct ClusterSettingsView: View {
                 if doctorReport != nil || doctorFailure != nil {
                     Section("Test results") {
                         DoctorResultView(report: doctorReport, failure: doctorFailure)
+
+                        if doctorFailure?.isInteractiveAuthenticationRequired == true {
+                            Button("Authenticate in Terminal…") {
+                                if let draft { controller.authenticateInteractively(profile: draft) }
+                            }
+                            Text("Complete the password or OTP prompts in Terminal, then click Test Connection again. The SSH master connection is reused by SlurmBar.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if let error = controller.interactiveAuthLaunchError {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }

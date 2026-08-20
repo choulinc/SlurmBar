@@ -20,6 +20,9 @@ final class AppController: ObservableObject {
     private let notifier: NotificationDelivering
     /// Surfaced in Settings when macOS refuses to register the login item.
     @Published private(set) var launchAtLoginError: String?
+    /// Surfaced beside the interactive-login button if Terminal could not be opened.
+    @Published private(set) var interactiveAuthLaunchError: String?
+    private var interactiveAuthRetryTask: Task<Void, Never>?
 
     init(settingsStore: SettingsStore? = nil, notifier: NotificationDelivering? = nil) {
         // In demo mode everything is redirected to a throwaway directory. Overriding HOME is
@@ -85,6 +88,27 @@ final class AppController: ObservableObject {
 
     func selectCluster(id: UUID) {
         settingsStore.selectCluster(id: id)
+    }
+
+    /// Opens the selected profile's real OpenSSH login in Terminal. Password and OTP entry stay
+    /// entirely inside Terminal; the menu bar app only schedules a few bounded retries so it can
+    /// recover as soon as the new ControlMaster is available.
+    func authenticateInteractively(profile: ClusterProfile? = nil) {
+        guard let profile = profile ?? settings.selectedCluster else { return }
+        do {
+            try InteractiveSSHLoginLauncher.open(profile: profile)
+            interactiveAuthLaunchError = nil
+            interactiveAuthRetryTask?.cancel()
+            interactiveAuthRetryTask = Task { [weak self] in
+                for delay in [8, 15, 30] {
+                    try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.refresh()
+                }
+            }
+        } catch {
+            interactiveAuthLaunchError = error.localizedDescription
+        }
     }
 
     // MARK: - Hiding finished jobs

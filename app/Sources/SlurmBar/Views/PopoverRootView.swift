@@ -356,6 +356,14 @@ private struct RetryActions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if controller.connection.failure?.isInteractiveAuthenticationRequired == true {
+                Button("Authenticate in Terminal…") {
+                    controller.authenticateInteractively()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
             HStack(spacing: 8) {
                 Button("Retry") { controller.refresh() }
                     .buttonStyle(.borderless)
@@ -369,6 +377,12 @@ private struct RetryActions: View {
                 if isTesting {
                     ProgressView().controlSize(.small)
                 }
+            }
+            if let error = controller.interactiveAuthLaunchError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let testResult {
                 Text(testResult)

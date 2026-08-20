@@ -24,6 +24,14 @@ struct EmptyStateView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             actions
+
+            if let error = controller.interactiveAuthLaunchError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
@@ -44,6 +52,21 @@ struct EmptyStateView: View {
             Button("Refresh") { controller.refresh() }
                 .controlSize(.small)
                 .padding(.top, 2)
+        case .disconnected(let failure) where failure.isInteractiveAuthenticationRequired:
+            VStack(spacing: 6) {
+                Button("Authenticate in Terminal…") {
+                    controller.authenticateInteractively()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                HStack(spacing: 8) {
+                    Button("Retry") { controller.refresh() }
+                    Button("Settings…") { openSettings() }
+                }
+                .controlSize(.small)
+            }
+            .padding(.top, 2)
         case .slurmUnavailable, .agentUnavailable, .disconnected:
             HStack(spacing: 8) {
                 Button("Retry") { controller.refresh() }

@@ -50,10 +50,10 @@ struct FileBackedRunner: RemoteCommandRunner {
     }
 
     private static let doctorJSON = """
-    {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z","agent_version":"0.2.5","ok":true,
+    {"schema_version":1,"generated_at":"2026-07-22T02:30:00Z","agent_version":"0.2.6","ok":true,
      "hostname":"login.demo.invalid","python_version":"3.11.6","warnings":[],
      "checks":[
-      {"id":"agent","title":"SlurmBar agent","status":"ok","detail":null,"value":"0.2.5"},
+      {"id":"agent","title":"SlurmBar agent","status":"ok","detail":null,"value":"0.2.6"},
       {"id":"python","title":"Remote Python","status":"ok","detail":null,"value":"3.11.6"},
       {"id":"slurm_commands","title":"Slurm commands","status":"ok","detail":null,"value":"squeue, sacct, sstat"},
       {"id":"slurm_version","title":"Slurm version","status":"ok","detail":null,"value":"slurm 24.05.0-demo"},
@@ -96,7 +96,7 @@ struct FileBackedRunner: RemoteCommandRunner {
         let payload: [String: Any] = [
             "schema_version": 1,
             "generated_at": ISO8601DateFormatter().string(from: Date()),
-            "agent_version": "0.2.5",
+            "agent_version": "0.2.6",
             "jobs": [
                 [
                     "job_id": "10001", "ok": true, "message": NSNull(),

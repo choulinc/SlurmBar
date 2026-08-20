@@ -108,6 +108,45 @@ final class SSHArgumentTests: XCTestCase {
     }
 }
 
+final class InteractiveSSHLoginTests: XCTestCase {
+    func testUsesInteractiveMasterModeForTheSelectedProfile() throws {
+        let profile = ClusterProfile(
+            displayName: "NCHC",
+            sshAlias: "NCHC-SlurmBar",
+            username: "example-user"
+        )
+
+        XCTAssertEqual(
+            try InteractiveSSHLogin.command(profile: profile),
+            "/usr/bin/ssh -o BatchMode=no -M -N -f -l example-user NCHC-SlurmBar"
+        )
+    }
+
+    func testTerminalScriptNeverDisablesHostKeyCheckingOrContainsCredentials() throws {
+        let profile = ClusterProfile(displayName: "Cluster", sshAlias: "cluster.example")
+        let script = try InteractiveSSHLogin.terminalScript(profile: profile)
+
+        XCTAssertTrue(script.contains("BatchMode=no"))
+        XCTAssertTrue(script.contains("never receives or stores"))
+        XCTAssertFalse(script.contains("StrictHostKeyChecking"))
+        XCTAssertFalse(script.contains("UserKnownHostsFile"))
+        XCTAssertFalse(script.lowercased().contains("password="))
+    }
+
+    func testShellMetacharactersInAliasRemainQuotedData() throws {
+        let profile = ClusterProfile(displayName: "Cluster", sshAlias: "cluster;touch-owned")
+        let command = try InteractiveSSHLogin.command(profile: profile)
+
+        XCTAssertTrue(command.hasSuffix("'cluster;touch-owned'"), "got: \(command)")
+        XCTAssertFalse(command.hasSuffix(" cluster;touch-owned"))
+    }
+
+    func testInvalidProfileCannotCreateInteractiveCommand() {
+        let profile = ClusterProfile(displayName: "Cluster", sshAlias: "-ProxyCommand=bad")
+        XCTAssertThrowsError(try InteractiveSSHLogin.command(profile: profile))
+    }
+}
+
 final class SSHErrorClassificationTests: XCTestCase {
     private func classify(_ stderr: String, exitCode: Int32 = 255) -> SSHFailure {
         SSHErrorClassifier.classify(exitCode: exitCode, stderr: stderr, alias: "example-cluster", timeout: 12)

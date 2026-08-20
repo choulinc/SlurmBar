@@ -102,11 +102,10 @@ public enum SSHFailure: Error, Hashable, Sendable {
             return "SlurmBar never prompts for a password. Make sure your key is loaded "
                 + "(ssh-add -l) and that ssh <alias> works in Terminal."
         case .interactiveAuthRequired:
-            return "SlurmBar runs ssh with BatchMode=yes and can never answer a password or "
-                + "one-time-code prompt. Open Terminal, run `ssh <alias>` and complete the "
-                + "login there. With ControlMaster/ControlPersist in your ~/.ssh/config, "
-                + "SlurmBar then reuses that connection. Raising ControlPersist keeps it alive "
-                + "longer between sessions."
+            return "SlurmBar's background connection never receives passwords or one-time codes. "
+                + "Click Authenticate in Terminal and complete the prompts there. With "
+                + "ControlMaster, ControlPath and ControlPersist in ~/.ssh/config, SlurmBar then "
+                + "reuses that authenticated connection."
         case .hostKeyUnknown:
             return "Run `ssh <alias>` once in Terminal and verify the fingerprint. SlurmBar will "
                 + "not accept an unknown host key on your behalf."
@@ -155,6 +154,11 @@ public enum SSHFailure: Error, Hashable, Sendable {
         default:
             return false
         }
+    }
+
+    public var isInteractiveAuthenticationRequired: Bool {
+        if case .interactiveAuthRequired = self { return true }
+        return false
     }
 }
 

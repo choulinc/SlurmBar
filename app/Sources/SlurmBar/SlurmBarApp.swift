@@ -29,8 +29,15 @@ struct SlurmBarApp: App {
 /// `LSUIElement` in Info.plist does this for a bundled app; setting the policy here as well
 /// means `swift run` behaves the same way during development.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var menuBarContextMenu: MenuBarContextMenuController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        MainActor.assumeIsolated {
+            let contextMenu = MenuBarContextMenuController()
+            contextMenu.install()
+            menuBarContextMenu = contextMenu
+        }
 
         // Launching a menu bar app otherwise looks like nothing happened: the icon is already
         // in the menu bar, so double-clicking in Finder gives no feedback at all. Show the

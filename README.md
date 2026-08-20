@@ -43,6 +43,10 @@ Python script there, and renders the JSON it prints. That's the whole design.
   so a failed job notifies once, not on every poll.
 - **Works offline** — the last successful snapshot stays visible, clearly marked stale, when the
   VPN drops.
+- **Assisted MFA reconnect** — when a password or OTP session expires, one button opens the
+  selected SSH alias in Terminal and SlurmBar retries after the interactive login succeeds.
+- **Menu bar controls** — left-click opens the dashboard; right-click offers quick Open and Quit
+  actions in a compact panel that matches SlurmBar's interface.
 
 ## What it is *not*
 
@@ -173,6 +177,9 @@ Now run the check again — it should print `SlurmBar can connect`, because the 
 lines from Step 2 let it ride on the connection you just made. The `ControlPersist 8h` setting
 keeps that alive for eight hours; after it lapses, just `ssh mycluster` once more.
 
+After setup, if the session expires, SlurmBar shows **Authenticate in Terminal…**. That button
+opens the same alias in SSH master mode so Terminal—not SlurmBar—handles the password and OTP.
+
 **Check:** `ssh -o BatchMode=yes mycluster true` succeeds. ✅
 
 ---
@@ -274,7 +281,7 @@ ssh mycluster 'python3 ~/.local/share/slurmbar/slurmbar-agent.pyz doctor --json'
 
 | What you see | What to do |
 | --- | --- |
-| Menu bar says **"Interactive login required"** | Your OTP session expired. Run `ssh mycluster` in Terminal again. |
+| Menu bar says **"Interactive login required"** | Your password/OTP session expired. Click **Authenticate in Terminal…**, complete the prompts, and SlurmBar retries automatically. |
 | Menu bar says **"Cluster unreachable"** | Off the VPN, or the network dropped. Your last known jobs stay visible, marked stale. |
 | Menu bar says **"Agent not installed"** | Open Settings and click **Install or Update Agent**. |
 | **"response was not valid JSON"** | Something in your shell startup prints a banner. `ssh mycluster true` should print *nothing*. |
@@ -372,7 +379,7 @@ That builds a zipapp, copies one file to `~/.local/share/slurmbar/` in **your** 
 on the cluster, writes a launcher into `~/.local/bin/`, and runs `doctor`:
 
 ```
-  [  ok  ] SlurmBar agent: 0.2.5
+  [  ok  ] SlurmBar agent: 0.2.6
   [  ok  ] Remote Python: 3.9.18
   [  ok  ] Slurm commands: squeue, sacct, sstat, scancel, scontrol, sinfo
   [  ok  ] Slurm version: slurm 23.11.7
@@ -629,7 +636,8 @@ have — nothing is queried per job. Logs are read only when you open a job.
 | --- | --- |
 | "SSH host not found" | The alias isn't in `~/.ssh/config`. Test with `ssh my-cluster true`. |
 | "Cluster unreachable" | VPN down, or the login node is unreachable. SlurmBar keeps showing the last snapshot, marked stale. |
-| "Authentication failed" | Key not loaded. `ssh-add -l`, then `ssh-add ~/.ssh/id_ed25519`. SlurmBar will never prompt. |
+| "Authentication failed" | Key not loaded. `ssh-add -l`, then `ssh-add ~/.ssh/id_ed25519`. SlurmBar itself never prompts. |
+| "Interactive login required" | Click **Authenticate in Terminal…** and complete the password/OTP prompts there. This requires `ControlMaster` and `ControlPath` in the alias's SSH config. |
 | "Unknown host key" | Run `ssh my-cluster` once in Terminal and verify the fingerprint yourself. |
 | "Host key changed" | Investigate before trusting it — verify the new fingerprint out of band. |
 | "Agent not installed" | Open Settings and click **Install or Update Agent**. |
