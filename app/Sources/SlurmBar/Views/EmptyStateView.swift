@@ -36,7 +36,7 @@ struct EmptyStateView: View {
     private var actions: some View {
         switch reason {
         case .noClusterConfigured:
-            Button("Open Settings…") { openSettings() }
+            Button("Set Up SlurmBar…") { openSettings() }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .padding(.top, 2)

@@ -70,7 +70,7 @@ public enum EmptyStateReason: Hashable, Sendable {
 
     public var title: String {
         switch self {
-        case .noClusterConfigured: return "No cluster configured"
+        case .noClusterConfigured: return "Set up SlurmBar"
         case .neverRefreshed: return "Not connected yet"
         case .noJobs: return "No jobs"
         case .slurmUnavailable: return "Slurm unavailable"
@@ -82,7 +82,7 @@ public enum EmptyStateReason: Hashable, Sendable {
     public var message: String {
         switch self {
         case .noClusterConfigured:
-            return "Add a cluster in Settings using an SSH alias you already use in Terminal."
+            return "Enter an SSH alias you already use in Terminal, then let SlurmBar install and test its remote agent."
         case .neverRefreshed:
             return "Refresh to load your jobs from the cluster."
         case .noJobs:

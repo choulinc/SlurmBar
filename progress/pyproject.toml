@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slurmbar-progress"
-version = "0.2.4"
+version = "0.2.5"
 description = "Structured progress reporting for Slurm workloads, readable by SlurmBar."
 readme = "README.md"
 requires-python = ">=3.7"

@@ -173,7 +173,7 @@ final class SSHErrorClassificationTests: XCTestCase {
             exitCode: 2
         )
         guard case .remoteAgentMissing = failure else { return XCTFail("got \(failure)") }
-        XCTAssertTrue(failure.recoverySuggestion?.contains("install-agent.sh") ?? false)
+        XCTAssertTrue(failure.recoverySuggestion?.contains("Install or Update Agent") ?? false)
     }
 
     func testMissingRemotePython() {

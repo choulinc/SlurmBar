@@ -24,7 +24,7 @@ from typing import Any, Dict, Mapping, Optional
 from ._atomic import atomic_write_json
 
 SCHEMA_VERSION = 1
-WRITER = "slurmbar_progress/0.2.4"
+WRITER = "slurmbar_progress/0.2.5"
 
 DEFAULT_MIN_INTERVAL_SECONDS = 5.0
 STATUS_FILENAME = "status.json"

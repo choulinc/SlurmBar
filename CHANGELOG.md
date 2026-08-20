@@ -2,6 +2,26 @@
 
 Notable changes per release. Dates are the release date, not the last commit.
 
+## 0.2.5 — 2026-08-20
+
+### Added — one-click installation
+
+- Release builds now include the matching remote agent. In Settings, **Install or Update Agent**
+  securely streams it over the user's existing OpenSSH connection, validates the zipapp before
+  activation, keeps one backup, installs a launcher, and immediately runs the health report.
+- New users get a short three-step cluster setup guide instead of instructions to clone the
+  repository and build the app before they can connect.
+- `build-macos-dmg.sh` creates a drag-to-Applications disk image named `SlurmBar-macOS.dmg`, and
+  `build-release.sh` produces stable asset names for permanent GitHub download links.
+- Release builds accept optional Developer ID and notarytool keychain-profile settings while
+  retaining ad-hoc signing for local development.
+
+### Changed
+
+- The README now starts with a direct **Download for macOS** button and documents the DMG plus
+  in-app agent installer as the primary path. Xcode and the shell installer are source-build
+  alternatives rather than prerequisites.
+
 ## 0.2.4 — 2026-08-20
 
 ### Added — live GPU dashboard

@@ -6,7 +6,8 @@
 #
 # SwiftPM produces a bare executable; a menu bar app needs a real bundle for LSUIElement,
 # UserNotifications and SMAppService (launch at login) to work at all. This assembles one and
-# ad-hoc signs it, which is enough for local use.
+# embeds the remote agent and signs it. The default ad-hoc signature is enough for local use;
+# set SLURMBAR_CODESIGN_IDENTITY to a Developer ID Application identity for distribution.
 #
 # For distribution to other machines you still need a Developer ID signature and notarization.
 
@@ -48,10 +49,22 @@ else
     echo "    warning: could not build the icon; the app will use the generic one." >&2
 fi
 
-echo "==> Signing (ad-hoc)"
+echo "==> Embedding the remote agent"
+"$REPO_ROOT/scripts/build-agent-zipapp.sh" \
+    "$OUTPUT/Contents/Resources/slurmbar-agent.pyz" >/dev/null
+echo "    slurmbar-agent.pyz"
+
+SIGN_IDENTITY="${SLURMBAR_CODESIGN_IDENTITY:--}"
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+    echo "==> Signing (ad-hoc)"
+    SIGN_OPTIONS=(--force --deep --sign -)
+else
+    echo "==> Signing with Developer ID"
+    SIGN_OPTIONS=(--force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY")
+fi
 # UNUserNotificationCenter and SMAppService both require a signed bundle. An ad-hoc signature
-# satisfies them locally; it is not sufficient for distribution.
-codesign --force --deep --sign - "$OUTPUT" 2>&1 | sed 's/^/    /' || {
+# satisfies them locally; public distribution still requires Developer ID plus notarization.
+codesign "${SIGN_OPTIONS[@]}" "$OUTPUT" 2>&1 | sed 's/^/    /' || {
     echo "    warning: codesign failed; notifications and launch-at-login may not work." >&2
 }
 

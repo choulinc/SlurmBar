@@ -6,11 +6,21 @@
 
 <p align="center"><strong>Your Slurm jobs at a glance.</strong></p>
 
+<p align="center">
+  <a href="https://github.com/choulinc/SlurmBar/releases/latest/download/SlurmBar-macOS.dmg">
+    <img src="https://img.shields.io/badge/Download_for_macOS-14%2B-0A84FF?style=for-the-badge&logo=apple&logoColor=white" alt="Download SlurmBar for macOS">
+  </a>
+</p>
+
+<p align="center">
+  Apple silicon · Drag to Applications · <a href="https://github.com/choulinc/SlurmBar/releases/latest">Release notes</a>
+</p>
+
 A native macOS menu bar app for monitoring Slurm jobs on remote HPC clusters over SSH. Running
 and pending jobs, live GPU utilization, training progress, runtime, memory, logs and failures — without keeping a
 terminal open and without running anything persistent on the cluster.
 
-**New here? Go straight to the [Quickstart](#quickstart)** — it takes about fifteen minutes and
+**New here? Go straight to the [Quickstart](#quickstart)** — it takes about five minutes and
 assumes no prior SSH setup.
 
 ---
@@ -63,12 +73,11 @@ cluster, account, node, path or job.
 
 ## Quickstart
 
-Fifteen minutes from nothing to jobs in your menu bar. Every step ends with a check, so you
+About five minutes from nothing to jobs in your menu bar. Every step ends with a check, so you
 always know whether to continue or stop and fix something.
 
-**You need:** a Mac on macOS 14+, [Xcode](https://apps.apple.com/app/xcode/id497799835)
-(SlurmBar is built from source — there is no prebuilt download yet), and an account on a
-cluster that runs Slurm.
+**You need:** an Apple silicon Mac on macOS 14+ and an account on a cluster that runs Slurm.
+Xcode is only needed if you choose to build from source.
 
 ---
 
@@ -168,48 +177,11 @@ keeps that alive for eight hours; after it lapses, just `ssh mycluster` once mor
 
 ---
 
-### Step 4 — Install the helper on the cluster
+### Step 4 — Download and install the Mac app
 
-```bash
-git clone https://github.com/choulinc/SlurmBar.git
-cd SlurmBar
-./scripts/install-agent.sh mycluster
-```
-
-This copies one ~45 KB Python file into **your own home directory** on the cluster
-(`~/.local/share/slurmbar/`). No `sudo`, nothing outside your home directory, no background
-service, and your shell startup files are left alone.
-
-It finishes by printing a health report:
-
-```
-  [  ok  ] Remote Python: 3.9.21
-  [  ok  ] Slurm commands: squeue, sacct, sstat, scancel, scontrol, sinfo
-  [  ok  ] Slurm version: slurm 24.05.0
-  [  ok  ] squeue: 8 job(s) in queue
-  [  ok  ] squeue --json
-  [  ok  ] Accounting (sacct)
-  [ warn ] Progress directory
-           Not present yet. It is created the first time a job reports progress.
-
-  Overall: ready
-```
-
-`Overall: ready` is what matters. A `warn` on the progress directory is normal and expected —
-see Step 7.
-
-**Check:** the report ends with `Overall: ready`. ✅
-
----
-
-### Step 5 — Build and open the app
-
-```bash
-./scripts/build-macos-app.sh
-open out/SlurmBar.app
-```
-
-The first build takes a minute or two.
+Click **[Download for macOS](https://github.com/choulinc/SlurmBar/releases/latest/download/SlurmBar-macOS.dmg)**,
+open the downloaded DMG, and drag **SlurmBar** onto **Applications**. Eject the disk image, then
+open SlurmBar from Applications.
 
 **SlurmBar has no window and no Dock icon.** Look at the right-hand end of your menu bar for a
 small server icon (▤). That icon *is* the app.
@@ -218,7 +190,7 @@ small server icon (▤). That icon *is* the app.
 
 ---
 
-### Step 6 — Point it at your cluster
+### Step 5 — Connect your cluster
 
 Click the menu bar icon → **Settings…** → **Clusters** tab → **+**, then fill in:
 
@@ -226,10 +198,16 @@ Click the menu bar icon → **Settings…** → **Clusters** tab → **+**, then
 | --- | --- |
 | Display name | Anything, e.g. `My Cluster` |
 | SSH alias | `mycluster` — the nickname from Step 2 |
-| Agent command | `python3 ~/.local/share/slurmbar/slurmbar-agent.pyz` |
+| Agent command | Leave the default value |
 
-Leave everything else at its default. Click **Test Connection** — you should get a list of green
-checks. Then click **Save**.
+Leave everything else at its default and click **Install or Update Agent**. SlurmBar copies its
+bundled Python zipapp to `~/.local/share/slurmbar/` on the cluster and immediately runs its health
+check. It uses no `sudo`, writes nothing outside your remote home directory, never changes shell
+startup files, and does not install a daemon.
+
+Green checks mean setup is complete. A warning that the progress directory does not exist yet is
+normal; it appears after a workload first reports progress. Click **Save** if you changed any
+advanced fields.
 
 Close Settings and click the menu bar icon.
 
@@ -240,7 +218,7 @@ wait up to 30 seconds, and it will appear.
 
 ---
 
-### Step 7 — (Optional) See training progress, not just "RUNNING"
+### Step 6 — (Optional) See training progress, not just "RUNNING"
 
 Slurm knows your job is `RUNNING`. It has **no idea** it's on epoch 375 of 1000 — no monitoring
 tool can know that unless your code says so.
@@ -298,7 +276,7 @@ ssh mycluster 'python3 ~/.local/share/slurmbar/slurmbar-agent.pyz doctor --json'
 | --- | --- |
 | Menu bar says **"Interactive login required"** | Your OTP session expired. Run `ssh mycluster` in Terminal again. |
 | Menu bar says **"Cluster unreachable"** | Off the VPN, or the network dropped. Your last known jobs stay visible, marked stale. |
-| Menu bar says **"Agent not installed"** | Re-run `./scripts/install-agent.sh mycluster`. |
+| Menu bar says **"Agent not installed"** | Open Settings and click **Install or Update Agent**. |
 | **"response was not valid JSON"** | Something in your shell startup prints a banner. `ssh mycluster true` should print *nothing*. |
 | No finished jobs listed | Your site has Slurm accounting turned off. Running and pending jobs still work. |
 | Memory shows `N/A` | Slurm genuinely didn't report it. SlurmBar shows `N/A` rather than making a number up. |
@@ -314,7 +292,7 @@ Longer list: [docs/troubleshooting.md](docs/troubleshooting.md).
 ┌────────────────────┐                     ┌──────────────────────────┐
 │  SlurmBar.app      │                     │                          │
 │  SwiftUI           │   /usr/bin/ssh      │  slurmbar-agent.pyz      │
-│  MenuBarExtra      │ ──────────────────► │  (one-shot, ~44 KB)      │
+│  MenuBarExtra      │ ──────────────────► │  (one-shot, ~55 KB)      │
 │                    │   BatchMode=yes     │       │                  │
 │  ┌──────────────┐  │                     │       ├─► squeue         │
 │  │ SlurmBarKit  │  │ ◄────────────────── │       ├─► sacct          │
@@ -370,7 +348,19 @@ pieces degrade into structured warnings rather than errors.
 The [Quickstart](#quickstart) is the short path. This section explains the same steps in more
 detail, plus the options it skips.
 
-### 1. Install the remote agent
+### 1. Install the Mac app
+
+Download **[SlurmBar-macOS.dmg](https://github.com/choulinc/SlurmBar/releases/latest/download/SlurmBar-macOS.dmg)**,
+open it, and drag SlurmBar into Applications. The app carries the matching remote agent inside
+its bundle, so no source checkout or Xcode installation is required.
+
+### 2. Add a cluster and install the remote agent
+
+Open **Settings → Clusters**, add your SSH alias, and click **Install or Update Agent**. The app
+streams the bundled agent over `/usr/bin/ssh`, validates it before activation, keeps one backup,
+and runs the same doctor report used by normal connection tests.
+
+For scripted or source-based installations, the command-line installer remains available:
 
 ```bash
 git clone https://github.com/choulinc/SlurmBar.git
@@ -382,7 +372,7 @@ That builds a zipapp, copies one file to `~/.local/share/slurmbar/` in **your** 
 on the cluster, writes a launcher into `~/.local/bin/`, and runs `doctor`:
 
 ```
-  [  ok  ] SlurmBar agent: 0.1.0
+  [  ok  ] SlurmBar agent: 0.2.5
   [  ok  ] Remote Python: 3.9.18
   [  ok  ] Slurm commands: squeue, sacct, sstat, scancel, scontrol, sinfo
   [  ok  ] Slurm version: slurm 23.11.7
@@ -401,7 +391,7 @@ fine — SlurmBar always calls the `.pyz` by its full path.
 
 To remove it: `./scripts/uninstall-agent.sh my-cluster`.
 
-### 2. Build and run the Mac app
+### 3. Build the Mac app from source
 
 ```bash
 ./scripts/build-macos-app.sh
@@ -417,14 +407,14 @@ Settings and add a cluster:
 | --- | --- |
 | Display name | `My Cluster` |
 | SSH alias | `my-cluster` |
-| Agent command | `python3 ~/.local/share/slurmbar/slurmbar-agent.pyz` |
+| Agent command | Leave the default value |
 | Polling interval | `30` seconds |
 
-Click **Test Connection** to confirm SSH, Python, Slurm, JSON output and accounting.
+Click **Install or Update Agent** to upload the bundled helper and run the health checks.
 
 For **Launch at Login**, copy the app to `/Applications` first — `SMAppService` requires it.
 
-### 3. SSH configuration
+### 4. SSH configuration
 
 SlurmBar uses your existing OpenSSH setup verbatim. A typical `~/.ssh/config`:
 
@@ -642,7 +632,7 @@ have — nothing is queried per job. Logs are read only when you open a job.
 | "Authentication failed" | Key not loaded. `ssh-add -l`, then `ssh-add ~/.ssh/id_ed25519`. SlurmBar will never prompt. |
 | "Unknown host key" | Run `ssh my-cluster` once in Terminal and verify the fingerprint yourself. |
 | "Host key changed" | Investigate before trusting it — verify the new fingerprint out of band. |
-| "Agent not installed" | Re-run `./scripts/install-agent.sh my-cluster`. |
+| "Agent not installed" | Open Settings and click **Install or Update Agent**. |
 | "Python not found" | Non-login SSH shells may have a smaller `PATH`. Use an absolute Python path in the agent command. |
 | "response was not valid JSON" | A shell startup file is printing a banner on login. Check `ssh my-cluster true` prints nothing. |
 | No finished jobs | Accounting is unavailable; the popover shows a `SACCT_UNAVAILABLE` warning. Running/pending still work. |
@@ -709,7 +699,8 @@ app cannot display invented jobs.
   successful jobs remain visible. Queries are capped at 64 jobs and 256 allocated nodes per refresh.
 - **Multi-node memory is not aggregated.** `MaxRSS` is per step; the protocol says so explicitly
   rather than summing values that aren't summable.
-- **Ad-hoc signed only.** Fine locally; distribution needs a Developer ID and notarization.
+- **Public builds still need Developer ID notarization.** The release scripts support it when
+  signing credentials are supplied; ad-hoc development builds can trigger Gatekeeper on another Mac.
 - The menu bar icon has not been visually verified against Apple's own icons on a Retina display
   in this environment (screen recording permission was unavailable); it uses the standard
   template rendering path.
@@ -721,7 +712,7 @@ app cannot display invented jobs.
   registry, no protocol change needed
 - A menu bar sparkline for the pinned job's loss curve
 - `sacctmgr` fair-share and pending-priority context for queued jobs
-- Optional Developer ID signing and a notarized release
+- Developer ID signing and notarized releases
 
 ## License
 

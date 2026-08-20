@@ -28,6 +28,19 @@ public protocol RemoteCommandRunner: Sendable {
     func run(remoteArguments: [String], timeout: TimeInterval) async throws -> RemoteCommandResult
 }
 
+/// A remote transport that can stream bytes to the command's standard input.
+///
+/// Kept separate from ``RemoteCommandRunner`` so ordinary polling stubs and file-backed demo
+/// runners do not need an upload implementation. The live SSH runner uses it to install the
+/// bundled agent without exposing the archive in argv or writing an intermediate local file.
+public protocol RemoteInputCommandRunner: RemoteCommandRunner {
+    func run(
+        remoteArguments: [String],
+        standardInput: Data,
+        timeout: TimeInterval
+    ) async throws -> RemoteCommandResult
+}
+
 /// Runs remote commands through the system OpenSSH client.
 ///
 /// Deliberate constraints:
@@ -36,7 +49,7 @@ public protocol RemoteCommandRunner: Sendable {
 /// * `BatchMode=yes` — SlurmBar can never produce a password prompt;
 /// * host key checking is left at OpenSSH's default — SlurmBar never accepts an unknown key;
 /// * output is capped and the process is killed on timeout.
-public struct SSHCommandRunner: RemoteCommandRunner {
+public struct SSHCommandRunner: RemoteInputCommandRunner {
     public static let sshPath = "/usr/bin/ssh"
 
     /// Hard cap on captured stdout, matching the decoder's limit.
@@ -91,6 +104,22 @@ public struct SSHCommandRunner: RemoteCommandRunner {
     }
 
     public func run(remoteArguments: [String], timeout: TimeInterval) async throws -> RemoteCommandResult {
+        try await run(remoteArguments: remoteArguments, standardInput: nil, timeout: timeout)
+    }
+
+    public func run(
+        remoteArguments: [String],
+        standardInput: Data,
+        timeout: TimeInterval
+    ) async throws -> RemoteCommandResult {
+        try await run(remoteArguments: remoteArguments, standardInput: Optional(standardInput), timeout: timeout)
+    }
+
+    private func run(
+        remoteArguments: [String],
+        standardInput: Data?,
+        timeout: TimeInterval
+    ) async throws -> RemoteCommandResult {
         guard FileManager.default.isExecutableFile(atPath: executablePath) else {
             throw SSHFailure.sshUnavailable(path: executablePath)
         }
@@ -99,7 +128,8 @@ public struct SSHCommandRunner: RemoteCommandRunner {
             executable: executablePath,
             arguments: sshArguments(remoteCommand: remoteCommand),
             timeout: timeout,
-            maxOutputBytes: Self.maxOutputBytes
+            maxOutputBytes: Self.maxOutputBytes,
+            standardInput: standardInput
         )
     }
 }

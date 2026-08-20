@@ -162,7 +162,7 @@ jobs = [
 snapshot = {
     "schema_version": 1,
     "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "agent_version": "0.2.4",
+    "agent_version": "0.2.5",
     "cluster": {"name": "demo-cluster", "hostname": "login.demo.invalid",
                 "slurm_version": "slurm 24.05.0-demo"},
     # Must match what the jobs above actually are: the app recomputes these from the visible

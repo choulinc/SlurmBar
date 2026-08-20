@@ -21,12 +21,22 @@ public enum ProcessRunner {
         executable: String,
         arguments: [String],
         timeout: TimeInterval,
-        maxOutputBytes: Int
+        maxOutputBytes: Int,
+        standardInput: Data? = nil
     ) async throws -> RemoteCommandResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
+
+        let inputPipe: Pipe?
+        if standardInput != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            inputPipe = pipe
+        } else {
+            process.standardInput = FileHandle.nullDevice
+            inputPipe = nil
+        }
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -68,6 +78,20 @@ public enum ProcessRunner {
                 } catch {
                     state.finish(with: .failure(SSHFailure.launchFailed(detail: error.localizedDescription)))
                     return
+                }
+
+                // Write after launch so ssh can stream the payload to the remote command. This
+                // is used by the in-app agent installer and keeps the archive out of command-line
+                // arguments and temporary files. Always close stdin so remote `cat` sees EOF.
+                if let standardInput, let inputPipe {
+                    DispatchQueue.global(qos: .utility).async {
+                        do {
+                            try inputPipe.fileHandleForWriting.write(contentsOf: standardInput)
+                            try inputPipe.fileHandleForWriting.close()
+                        } catch {
+                            try? inputPipe.fileHandleForWriting.close()
+                        }
+                    }
                 }
 
                 state.startTimeout(timeout)

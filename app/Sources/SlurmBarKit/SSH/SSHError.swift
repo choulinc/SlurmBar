@@ -116,8 +116,8 @@ public enum SSHFailure: Error, Hashable, Sendable {
         case .timedOut:
             return "Increase the timeout in Settings, or check whether the login node is under load."
         case .remoteAgentMissing:
-            return "Run ./scripts/install-agent.sh <alias> to install it, or correct the agent "
-                + "command in Settings."
+            return "Open the cluster in Settings and click Install or Update Agent, or correct "
+                + "the agent command if you use a custom installation."
         case .remotePythonMissing:
             return "Set the agent command in Settings to an absolute Python path, or load a "
                 + "Python module in the remote command."

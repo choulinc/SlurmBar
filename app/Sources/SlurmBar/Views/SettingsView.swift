@@ -11,7 +11,7 @@ struct SettingsRootView: View {
             NotificationSettingsView()
                 .tabItem { Label("Notifications", systemImage: "bell") }
         }
-        .frame(width: 640, height: 500)
+        .frame(width: 660, height: 560)
     }
 }
 
@@ -24,6 +24,7 @@ struct ClusterSettingsView: View {
     @State private var doctorReport: DoctorReport?
     @State private var doctorFailure: SSHFailure?
     @State private var isTesting = false
+    @State private var isInstalling = false
 
     var body: some View {
         HSplitView {
@@ -81,6 +82,15 @@ struct ClusterSettingsView: View {
     private var editor: some View {
         if let binding = draftBinding {
             Form {
+                if binding.wrappedValue.sshAlias.isEmpty {
+                    Section("Quick setup") {
+                        Label("Enter the SSH alias that already works in Terminal.", systemImage: "1.circle.fill")
+                        Label("Click Install or Update Agent.", systemImage: "2.circle.fill")
+                        Label("A successful health report means setup is complete.", systemImage: "3.circle.fill")
+                    }
+                    .font(.caption)
+                }
+
                 Section("Connection") {
                     TextField("Display name", text: binding.displayName, prompt: Text("My Cluster"))
                     TextField("SSH alias or host", text: binding.sshAlias, prompt: Text("my-cluster"))
@@ -100,10 +110,20 @@ struct ClusterSettingsView: View {
                     ))
                     .font(.system(.body, design: .monospaced))
 
-                    Text("Run ./scripts/install-agent.sh \(binding.wrappedValue.sshAlias.isEmpty ? "<alias>" : binding.wrappedValue.sshAlias) to install the agent into your home directory on the cluster.")
+                    Text("SlurmBar can securely copy its bundled agent into ~/.local/share/slurmbar/ over your existing SSH connection. It writes only inside your remote home directory and never uses sudo.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        installAgent()
+                    } label: {
+                        Label(
+                            isInstalling ? "Installing Agent…" : "Install or Update Agent",
+                            systemImage: "shippingbox"
+                        )
+                    }
+                    .disabled(isInstalling || isTesting || !binding.wrappedValue.isValid)
 
                     TextField("Progress directory", text: binding.progressDirectory,
                               prompt: Text("~/.local/state/slurmbar/jobs"))
@@ -160,8 +180,8 @@ struct ClusterSettingsView: View {
                             .keyboardShortcut(.defaultAction)
                             .disabled(!binding.wrappedValue.isValid)
                         Button("Test Connection") { runDoctor() }
-                            .disabled(isTesting || !binding.wrappedValue.isValid)
-                        if isTesting { ProgressView().controlSize(.small) }
+                            .disabled(isTesting || isInstalling || !binding.wrappedValue.isValid)
+                        if isTesting || isInstalling { ProgressView().controlSize(.small) }
                     }
                 }
 
@@ -176,9 +196,9 @@ struct ClusterSettingsView: View {
             ContentUnavailableView {
                 Label("No cluster selected", systemImage: "server.rack")
             } description: {
-                Text("Add a cluster to start monitoring Slurm jobs.")
+                Text("Add the SSH alias you already use in Terminal. SlurmBar can install the remote agent for you.")
             } actions: {
-                Button("Add Cluster") { addCluster() }
+                Button("Set Up a Cluster") { addCluster() }
             }
         }
     }
@@ -238,6 +258,34 @@ struct ClusterSettingsView: View {
                 doctorFailure = .launchFailed(detail: error.localizedDescription)
             }
             isTesting = false
+        }
+    }
+
+    private func installAgent() {
+        guard var draft else { return }
+        isInstalling = true
+        doctorReport = nil
+        doctorFailure = nil
+
+        Task {
+            do {
+                guard AppController.demoRoot == nil else {
+                    throw SSHFailure.launchFailed(detail: "Agent installation is unavailable in screenshot demo mode.")
+                }
+                let archive = try BundledAgentArchive.load()
+                let report = try await RemoteAgentInstaller.live(profile: draft)
+                    .install(agentData: archive)
+                draft.agentCommand = ClusterProfile.defaultAgentCommand
+                self.draft = draft
+                controller.settingsStore.updateCluster(draft)
+                doctorReport = report
+                controller.refresh()
+            } catch let failure as SSHFailure {
+                doctorFailure = failure
+            } catch {
+                doctorFailure = .launchFailed(detail: error.localizedDescription)
+            }
+            isInstalling = false
         }
     }
 }
